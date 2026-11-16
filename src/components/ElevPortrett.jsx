@@ -19,7 +19,7 @@ import {
 } from '../utils/schedule.js';
 import { getSubjectDefaultColor, getCurrentSubjectColor, normalizeHexColor } from '../utils/color.js';
 import { TIMER_CLASSIC_RED, loadTimerSettings, readTimerStatus, formatTimerReadout } from '../utils/timer.js';
-import { timeStatus, timeTittel } from '../hooks/useDagensTime.js';
+import { timeStatus, timeTittel, sisteFerdigePunkt } from '../hooks/useDagensTime.js';
 
 /**
  * Stående skjerm (elevenes iPad, mobil): hovedskjermen og den liggende
@@ -366,8 +366,20 @@ export default function ElevPortrett({
             <ol className="ep-time-punkter" aria-label="Agenda">
               {dagensTime.punkter.map((p, i) => (
                 <li key={i} className={`${p.ferdig ? 'er-ferdig' : ''}${i === time.naaIndex ? ' er-naa' : ''}`.trim() || undefined}>
-                  <span className="dt-nr">{p.ferdig ? <Ikon navn="check" strek={3} tittel="Gjort" /> : i + 1}</span>
-                  <span className="ep-time-punkt">{p.tekst}</span>
+                  <div className="ep-time-rad">
+                    <span className="dt-nr">{p.ferdig ? <Ikon navn="check" strek={3} tittel="Gjort" /> : i + 1}</span>
+                    <span className="ep-time-punkt">{p.tekst}</span>
+                  </div>
+                  {p.under?.length > 0 && (!p.ferdig || i === sisteFerdigePunkt(dagensTime.punkter)) && (
+                    <ol className="ep-time-under">
+                      {p.under.map((u, j) => (
+                        <li key={j} className={`${u.ferdig ? 'er-ferdig' : ''}${i === time.naaIndex && j === time.naaUnder ? ' er-naa' : ''}`.trim() || undefined}>
+                          <span className="dt-nr">{u.ferdig ? <Ikon navn="check" strek={3} tittel="Gjort" /> : 'abcdefghijklmnopqrstuvwxyz'[j] || j + 1}</span>
+                          <span className="ep-time-punkt">{u.tekst}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
                 </li>
               ))}
             </ol>

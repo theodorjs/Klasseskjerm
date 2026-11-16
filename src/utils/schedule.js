@@ -396,7 +396,8 @@ export function ensureClassData(classData) {
 }
 
 /**
- * Maler for «Agenda for timen», per fag: { [fag]: { maal, punkter: [tekst] } }.
+ * Maler for «Agenda for timen», per fag: { [fag]: { maal, punkter } }.
+ * Et punkt er en tekst, eller { tekst, under: [tekst] } når det har underpunkter.
  * Tomme maler og ugyldige verdier fjernes.
  */
 export function normaliserTimeMaler(maler) {
@@ -404,8 +405,15 @@ export function normaliserTimeMaler(maler) {
   Object.entries(normalizeSubjectKeyMap(maler || {})).forEach(([fag, mal]) => {
     if (!mal || typeof mal !== 'object') return;
     const punkter = (Array.isArray(mal.punkter) ? mal.punkter : [])
-      .filter(t => typeof t === 'string')
-      .map(t => t.trim())
+      .map(p => {
+        if (typeof p === 'string') return p.trim();
+        if (!p || typeof p.tekst !== 'string' || !p.tekst.trim()) return '';
+        const under = (Array.isArray(p.under) ? p.under : [])
+          .filter(u => typeof u === 'string')
+          .map(u => u.trim())
+          .filter(Boolean);
+        return under.length ? { tekst: p.tekst.trim(), under } : p.tekst.trim();
+      })
       .filter(Boolean);
     const maal = typeof mal.maal === 'string' ? mal.maal.trim() : '';
     if (punkter.length || maal) ut[fag] = { maal, punkter };

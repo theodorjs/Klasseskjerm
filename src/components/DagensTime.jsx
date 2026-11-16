@@ -3,7 +3,7 @@ import Dialog from './Dialog.jsx';
 import Info from './Info.jsx';
 import Ikon, { FagSymbol } from './Ikon.jsx';
 import { getMinutesFromTime, formatMinutesAsTime } from '../utils/time.js';
-import { tolkKlokkeslett, dagensDato, timeStatus, timeTittel, VIS_FOER_START } from '../hooks/useDagensTime.js';
+import { tolkKlokkeslett, dagensDato, timeStatus, timeTittel, sisteFerdigePunkt, VIS_FOER_START } from '../hooks/useDagensTime.js';
 import { getReadableAgendaTextColor } from '../utils/color.js';
 import { erElev, skoleTjeneste } from '../utils/ksTjeneste.js';
 
@@ -11,6 +11,70 @@ import { erElev, skoleTjeneste } from '../utils/ksTjeneste.js';
    læreren setter den opp (instrument). Rask vei: faget og tiden hentes fra
    timeplanen, så læreren bare skriver punktene. Full vei: tittel, tid og mål.
    Hvert fag kan ha en mal som hentes med ett trykk. */
+
+const BOKSTAVER = 'abcdefghijklmnopqrstuvwxyz';
+
+function bokstav(j) { return BOKSTAVER[j] || String(j + 1); }
+
+/* Dialogen redigerer punktene som en flat liste med nivå (0 = punkt,
+   1 = underpunkt). På tavla og i malene lagres de nøstet: { tekst, under }. */
+function tilRader(punkter) {
+  const rader = [];
+  (punkter || []).forEach(p => {
+    const tekst = typeof p === 'string' ? p : (p?.tekst || '');
+    rader.push({ tekst, nivaa: 0 });
+    const under = typeof p === 'string' ? [] : (p?.under || []);
+    under.forEach(u => rader.push({ tekst: typeof u === 'string' ? u : (u?.tekst || ''), nivaa: 1 }));
+  });
+  return rader.length ? rader : [{ tekst: '', nivaa: 0 }];
+}
+
+function tilStruktur(rader) {
+  const ut = [];
+  // Et tomt punkt tas ikke med; underpunktene dets blir da vanlige punkter,
+  // i stedet for å havne under punktet over
+  let forelderTom = true;
+  rader.forEach(r => {
+    const tekst = r.tekst.trim();
+    if (r.nivaa === 0) forelderTom = !tekst;
+    if (!tekst) return;
+    if (r.nivaa === 1 && ut.length && !forelderTom) ut[ut.length - 1].under.push(tekst);
+    else ut.push({ tekst, under: [] });
+  });
+  return ut;
+}
+
+/** «1», «2» for punkter, «a», «b» for underpunktene under hvert punkt */
+function radMerker(rader) {
+  let n = 0;
+  let u = 0;
+  return rader.map(r => {
+    if (r.nivaa === 1 && n > 0) { u += 1; return { merke: bokstav(u - 1), navn: `Underpunkt ${n}${bokstav(u - 1)}` }; }
+    n += 1; u = 0;
+    return { merke: String(n), navn: `Punkt ${n}` };
+  });
+}
+
+/**
+ * Innlimt tekst: én rad per linje. Linjer med mer innrykk enn de minst
+ * innrykkede blir underpunkter. Limes det inn i et underpunkt, blir alt
+ * underpunkter. Punkttegn fjernes; tall og bokstaver («1.», «a)») bare når
+ * alle linjene har dem, så «2. verdenskrig» og «s. 34» står i fred.
+ */
+function tolkLinjer(tekst, grunnNivaa = 0) {
+  const linjer = tekst.split(/\r?\n/).filter(l => l.trim());
+  if (!linjer.length) return [];
+  const innrykk = l => l.match(/^[\t ]*/)[0].replace(/\t/g, '    ').length;
+  const minst = Math.min(...linjer.map(innrykk));
+  const nummerert = linjer.every(l => /^(\d+|[a-zA-Z])[.)]\s+\S/.test(l.trim()));
+  return linjer
+    .map(linje => {
+      let t = linje.trim().replace(/^[-–—•◦▪·*o]\s+/, '');
+      if (nummerert) t = t.replace(/^(\d+|[a-zA-Z])[.)]\s+/, '');
+      return { nivaa: Math.min(1, grunnNivaa + (innrykk(linje) > minst ? 1 : 0)), tekst: t.trim() };
+    })
+    .filter(r => r.tekst);
+}
 
 /** Lite fagmerke med symbol og fagfarge, som på «Akkurat nå» */
 function FagMerke({ merke, className = '' }) {
@@ -26,8 +90,9 @@ function FagMerke({ merke, className = '' }) {
 // ─── Kortet elevene ser ─────────────────────────────────────────────────────
 
 export function DagensTimeKort({ time, minutter, merke, onEndre, onSkjul, onVekslePunkt }) {
-  const { status, naaIndex, framdrift } = timeStatus(time, minutter);
+  const { status, naaIndex, naaUnder, framdrift } = timeStatus(time, minutter);
   const listeRef = useRef(null);
+  const sisteFerdig = sisteFerdigePunkt(time.punkter);
 
   // Lang agenda ruller inni kortet: punktet klassen er på holdes i syne
   useEffect(() => {
@@ -35,12 +100,15 @@ export function DagensTimeKort({ time, minutter, merke, onEndre, onSkjul, onVeks
     if (!ol || naaIndex < 0 || ol.scrollHeight <= ol.clientHeight) return;
     const li = ol.children[naaIndex];
     if (!li) return;
+    // Underpunktet klassen er på, ellers selve punktet (bare knapperaden)
+    const maal = (naaUnder >= 0 && li.querySelector('.dt-under')?.children[naaUnder])
+      || li.querySelector(':scope > .dt-punkt') || li;
     const boks = ol.getBoundingClientRect();
-    const rad = li.getBoundingClientRect();
+    const rad = maal.getBoundingClientRect();
     if (rad.top < boks.top || rad.bottom > boks.bottom) {
       ol.scrollTop += rad.top - boks.top - 8;
     }
-  }, [naaIndex]);
+  }, [naaIndex, naaUnder]);
   const tittel = timeTittel(time);
 
   return (
@@ -91,6 +159,25 @@ export function DagensTimeKort({ time, minutter, merke, onEndre, onSkjul, onVeks
                 <span className="dt-nr">{p.ferdig ? <Ikon navn="check" strek={3} /> : i + 1}</span>
                 <span className="dt-punkt-tekst">{p.tekst}</span>
               </button>
+              {/* Underpunktene: skjules når hele punktet er ferdig, så lista ikke blir lang */}
+              {p.under?.length > 0 && (!p.ferdig || i === sisteFerdig) && (
+                <ol className="dt-under">
+                  {p.under.map((u, j) => (
+                    <li key={j} className={`${u.ferdig ? 'er-ferdig' : ''}${i === naaIndex && j === naaUnder ? ' er-naa' : ''}`.trim() || undefined}>
+                      <button
+                        type="button"
+                        className="dt-punkt dt-punkt--under"
+                        onClick={() => onVekslePunkt(i, j)}
+                        aria-pressed={u.ferdig ? 'true' : 'false'}
+                        title={u.ferdig ? 'Marker som ikke ferdig' : 'Marker som ferdig'}
+                      >
+                        <span className="dt-nr">{u.ferdig ? <Ikon navn="check" strek={3} /> : bokstav(j)}</span>
+                        <span className="dt-punkt-tekst">{u.tekst}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              )}
             </li>
           ))}
         </ol>
@@ -122,10 +209,7 @@ function PlanleggTimeInner({
   const [fra, setFra] = useState(eksisterende?.fra || forslag.fra);
   const [til, setTil] = useState(eksisterende?.til || forslag.til);
   const [maal, setMaal] = useState(eksisterende?.maal || '');
-  const [punkter, setPunkter] = useState(() => {
-    const p = eksisterende?.punkter?.map(x => x.tekst) || [];
-    return p.length ? p : [''];
-  });
+  const [rader, setRader] = useState(() => tilRader(eksisterende?.punkter));
   const [tilRort, setTilRort] = useState(!!eksisterende);
   const [visFeil, setVisFeil] = useState(false);
   const [malMelding, setMalMelding] = useState('');
@@ -157,7 +241,7 @@ function PlanleggTimeInner({
       const len = el.value.length;
       try { el.setSelectionRange(len, len); } catch { /* ikke alle felt kan markeres */ }
     }
-  }, [punkter]);
+  }, [rader]);
 
   // Et felt som nettopp ble vist (Endre, + Læringsmål), får fokus
   useEffect(() => {
@@ -172,8 +256,9 @@ function PlanleggTimeInner({
   const slutt = tilOk ? getMinutesFromTime(tilOk) : null;
   const varighet = start != null && slutt != null ? slutt - start : null;
   const tidOk = varighet != null && varighet > 0;
-  const rensedePunkter = punkter.map(p => p.trim()).filter(Boolean);
-  const harInnhold = !!(tittel.trim() || maal.trim() || rensedePunkter.length);
+  const struktur = tilStruktur(rader);
+  const harInnhold = !!(tittel.trim() || maal.trim() || struktur.length);
+  const merker = radMerker(rader);
   const kanLagre = tidOk && harInnhold;
 
   let tidFeil = '';
@@ -220,9 +305,15 @@ function PlanleggTimeInner({
       fra: fraOk,
       til: tilOk,
       maal: maal.trim(),
-      punkter: rensedePunkter.map((tekst) => {
-        const gammel = eksisterende?.punkter?.find(x => x.tekst === tekst);
-        return { tekst, ferdig: !!gammel?.ferdig };
+      // Avkrysninger beholdes for punkter (og underpunkter) med samme tekst
+      punkter: struktur.map((p, i) => {
+        // Samme tekst, ellers samme plass (en rettet skrivefeil skal ikke nullstille hakene)
+        const gammel = eksisterende?.punkter?.find(x => x.tekst === p.tekst) || eksisterende?.punkter?.[i];
+        const under = p.under.map(tekst => ({
+          tekst,
+          ferdig: !!gammel?.under?.find(u => u.tekst === tekst)?.ferdig,
+        }));
+        return { tekst: p.tekst, ferdig: under.length ? under.every(u => u.ferdig) : !!gammel?.ferdig, under };
       }),
       fast: fest,
       fastVed: fest ? minutter : null,
@@ -249,46 +340,63 @@ function PlanleggTimeInner({
   }
 
   function endrePunkt(i, v) {
-    // Lim inn flere linjer: ett punkt per linje
-    if (v.includes('\n')) {
-      const linjer = v.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-      setPunkter(prev => {
-        const neste = [...prev];
-        neste.splice(i, 1, ...linjer);
-        fokusPunkt.current = i + linjer.length - 1;
-        return neste.length ? neste : [''];
-      });
-      return;
-    }
-    setPunkter(prev => prev.map((p, j) => (j === i ? v : p)));
+    setRader(prev => prev.map((r, j) => (j === i ? { ...r, tekst: v } : r)));
   }
 
-  function leggTilPunkt(etter) {
-    setPunkter(prev => {
+  function leggTilPunkt(etter, nivaa = 0) {
+    setRader(prev => {
       const neste = [...prev];
-      neste.splice(etter + 1, 0, '');
+      neste.splice(etter + 1, 0, { tekst: '', nivaa });
       fokusPunkt.current = etter + 1;
       return neste;
     });
   }
 
   function fjernPunkt(i) {
-    setPunkter(prev => {
-      if (prev.length <= 1) { fokusPunkt.current = 0; return ['']; }
+    setRader(prev => {
+      if (prev.length <= 1) { fokusPunkt.current = 0; return [{ tekst: '', nivaa: 0 }]; }
       fokusPunkt.current = Math.max(0, i - 1);
-      return prev.filter((_, j) => j !== i);
+      const neste = prev.filter((_, j) => j !== i);
+      // Øverste rad kan ikke være et underpunkt
+      if (neste[0].nivaa === 1) neste[0] = { ...neste[0], nivaa: 0 };
+      return neste;
     });
+  }
+
+  // Underpunkt ↔ punkt. Første rad har ikke noe punkt over seg og forblir et punkt.
+  function settNivaa(i, nivaa) {
+    if (i === 0 && nivaa === 1) return;
+    setRader(prev => prev.map((r, j) => (j === i ? { ...r, nivaa } : r)));
+    fokusPunkt.current = i;
   }
 
   function punktTast(e, i) {
     if (hurtigLagre(e)) return;
-    if (e.key === 'Enter') {
+    const rad = rader[i];
+    if (e.key === 'Tab') {
+      // Tabulator gir underpunkt, Shift+Tabulator tilbake (på tastatur)
+      if (e.shiftKey ? rad.nivaa === 1 : (i > 0 && rad.nivaa === 0)) {
+        e.preventDefault();
+        settNivaa(i, e.shiftKey ? 0 : 1);
+      }
+    } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (!punkter[i].trim()) return;
-      leggTilPunkt(i);
-    } else if (e.key === 'Backspace' && !punkter[i] && punkter.length > 1) {
-      e.preventDefault();
-      fjernPunkt(i);
+      if (!rad.tekst.trim()) {
+        // Enter i et tomt underpunkt gjør det til et vanlig punkt, som i en tekstbehandler
+        if (rad.nivaa === 1) settNivaa(i, 0);
+        return;
+      }
+      if (rad.nivaa === 0 && rader[i + 1]?.nivaa === 1) {
+        // Punktet har underpunkter: neste punkt kommer etter dem, så de blir der de er
+        let slutt = i + 1;
+        while (rader[slutt + 1]?.nivaa === 1) slutt += 1;
+        leggTilPunkt(slutt, 0);
+        return;
+      }
+      leggTilPunkt(i, rad.nivaa);
+    } else if (e.key === 'Backspace' && !rad.tekst) {
+      if (rad.nivaa === 1) { e.preventDefault(); settNivaa(i, 0); return; }
+      if (rader.length > 1) { e.preventDefault(); fjernPunkt(i); }
     }
   }
 
@@ -296,8 +404,16 @@ function PlanleggTimeInner({
     const tekst = e.clipboardData?.getData('text') || '';
     if (!tekst.includes('\n')) return;
     e.preventDefault();
-    const foran = punkter[i] ? `${punkter[i]}\n` : '';
-    endrePunkt(i, foran + tekst);
+    const nye = tolkLinjer(tekst, rader[i].nivaa);
+    if (!nye.length) return;
+    setRader(prev => {
+      const neste = [...prev];
+      const beholdes = prev[i].tekst.trim() ? [prev[i]] : [];
+      neste.splice(i, 1, ...beholdes, ...nye);
+      if (neste[0].nivaa === 1) neste[0] = { ...neste[0], nivaa: 0 };
+      fokusPunkt.current = i + beholdes.length + nye.length - 1;
+      return neste;
+    });
   }
 
   function visFelt(ref, sett) {
@@ -306,27 +422,31 @@ function PlanleggTimeInner({
   }
 
   // ── Malen for faget ──
-  const malPunkter = mal?.punkter || [];
-  const punkterLikMal = !!mal && malPunkter.join('\n') === rensedePunkter.join('\n');
+  const malStruktur = tilStruktur(tilRader(mal?.punkter));
+  const punkterLikMal = !!mal && JSON.stringify(malStruktur) === JSON.stringify(struktur);
   const likMal = punkterLikMal && (mal.maal || '') === maal.trim();
-  const visBrukMal = !!mal && malPunkter.length > 0 && !punkterLikMal;
+  const visBrukMal = !!mal && malStruktur.length > 0 && !punkterLikMal;
   const elevmodus = !!skoleTjeneste() && erElev();
 
   function brukMal() {
-    if (rensedePunkter.length && !confirm(`Erstatte punktene du har skrevet med malen for ${fag}?`)) return;
-    setPunkter(malPunkter.length ? [...malPunkter] : ['']);
+    if (struktur.length && !confirm(`Erstatte punktene du har skrevet med malen for ${fag}?`)) return;
+    const nye = tilRader(mal.punkter);
+    setRader(nye);
     if (mal.maal && !maal.trim()) {
       setMaal(mal.maal);
       setVisMaal(true);
     }
-    fokusPunkt.current = Math.max(0, malPunkter.length - 1);
+    fokusPunkt.current = Math.max(0, nye.length - 1);
     setMalMelding('');
   }
 
   function lagreMal() {
-    if (!editPermission || !rensedePunkter.length) return;
+    if (!editPermission || !struktur.length) return;
     if (mal && !confirm(`Erstatte malen for ${fag}?`)) return;
-    onLagreMal(fagNokkel, { maal: maal.trim(), punkter: rensedePunkter });
+    onLagreMal(fagNokkel, {
+      maal: maal.trim(),
+      punkter: struktur.map(p => (p.under.length ? { tekst: p.tekst, under: p.under } : p.tekst)),
+    });
     setMalMelding(`Lagret som mal for ${fag}. Neste gang henter du den med ett trykk.`);
   }
 
@@ -433,32 +553,40 @@ function PlanleggTimeInner({
       )}
 
       <div className="k-field">
-        <span id="time-agenda-tittel">Agenda <span className="dt-hint">Enter gir nytt punkt</span></span>
+        <span id="time-agenda-tittel">Agenda <span className="dt-hint">Enter gir nytt punkt, <Ikon navn="corner-down-right" /> gjør det til et underpunkt</span></span>
         {visBrukMal && (
           <button type="button" className="k-btn k-btn--rediger dt-bruk-mal" id="time-bruk-mal" onClick={brukMal}>
             <Ikon navn="clipboard-list" /> Bruk malen for {fag}
-            {malPunkter.length > 0 && <span className="dt-bruk-mal-antall"> ({malPunkter.length} {malPunkter.length === 1 ? 'punkt' : 'punkter'})</span>}
+            <span className="dt-bruk-mal-antall"> ({malStruktur.length} {malStruktur.length === 1 ? 'punkt' : 'punkter'})</span>
           </button>
         )}
         <ol className="dt-punktliste" aria-labelledby="time-agenda-tittel">
-          {punkter.map((p, i) => (
-            <li key={i} className="dt-punktrad">
-              <span className="dt-punktnr" aria-hidden="true">{i + 1}</span>
+          {rader.map((r, i) => (
+            <li key={i} className={`dt-punktrad${r.nivaa === 1 ? ' dt-punktrad--under' : ''}`}>
+              <span className="dt-punktnr" aria-hidden="true">{merker[i].merke}</span>
               <input
                 ref={el => { punktRefs.current[i] = el; }}
                 type="text"
                 className="k-input"
                 id={i === 0 ? 'time-punkt-1' : undefined}
-                aria-label={`Punkt ${i + 1}`}
-                placeholder={i === 0 ? 'For eksempel «Oppstart»' : 'Neste punkt'}
-                value={p}
+                aria-label={merker[i].navn}
+                placeholder={i === 0 ? 'For eksempel «Oppstart»' : (r.nivaa === 1 ? 'Delsteg' : 'Neste punkt')}
+                value={r.tekst}
                 onChange={e => endrePunkt(i, e.target.value)}
                 onKeyDown={e => punktTast(e, i)}
                 onPaste={e => limInn(e, i)}
                 autoComplete="off"
               />
-              {(punkter.length > 1 || p) && (
-                <button type="button" className="k-close dt-fjern" aria-label={`Fjern punkt ${i + 1}`} onClick={() => fjernPunkt(i)}>
+              <button
+                type="button"
+                className={`k-close dt-nivaa${r.nivaa === 1 ? ' er-under' : ''}`}
+                aria-label={r.nivaa === 1 ? `Gjør ${merker[i].navn.toLowerCase()} til et vanlig punkt` : `Gjør ${merker[i].navn.toLowerCase()} til et underpunkt`}
+                title={r.nivaa === 1 ? 'Gjør til vanlig punkt' : 'Gjør til underpunkt'}
+                disabled={i === 0}
+                onClick={() => settNivaa(i, r.nivaa === 1 ? 0 : 1)}
+              ><Ikon navn={r.nivaa === 1 ? 'arrow-left' : 'corner-down-right'} /></button>
+              {(rader.length > 1 || r.tekst) && (
+                <button type="button" className="k-close dt-fjern" aria-label={`Fjern ${merker[i].navn.toLowerCase()}`} onClick={() => fjernPunkt(i)}>
                   <Ikon navn="x" />
                 </button>
               )}
@@ -466,7 +594,7 @@ function PlanleggTimeInner({
           ))}
         </ol>
         <div className="dt-tillegg">
-          <button type="button" className="k-btn k-btn--ny k-btn--liten dt-nytt-punkt" onClick={() => leggTilPunkt(punkter.length - 1)}>
+          <button type="button" className="k-btn k-btn--ny k-btn--liten dt-nytt-punkt" onClick={() => leggTilPunkt(rader.length - 1)}>
             <Ikon navn="plus" /> Nytt punkt
           </button>
           {!visMaal && !utvidet && (
@@ -505,7 +633,7 @@ function PlanleggTimeInner({
             type="button"
             className="k-btn k-btn--liten dt-lagre-mal"
             id="time-lagre-mal"
-            disabled={!editPermission || !rensedePunkter.length || likMal}
+            disabled={!editPermission || !struktur.length || likMal}
             onClick={lagreMal}
           ><Ikon navn="download" /> Lagre som mal for {fag}</button>
           <span className="dt-mal-hint" role="status">

@@ -284,20 +284,36 @@
         font-weight: 700;
         line-height: 1.2;
     }
-    .ep-time-punkter li {
-        display: flex;
-        align-items: center;
-        gap: 0.6em;
+    .ep-time-punkter > li {
         padding: 4px 10px;
         border: 2px solid transparent;
         border-radius: var(--radius-m);
     }
+    .ep-time-rad,
+    .ep-time-under > li { display: flex; align-items: center; gap: 0.6em; }
     .ep-time-punkt { min-width: 0; overflow-wrap: anywhere; }
-    .ep-time-punkter li.er-ferdig { opacity: 0.5; }
-    .ep-time-punkter li.er-ferdig .ep-time-punkt { text-decoration: line-through; }
-    .ep-time-punkter li.er-ferdig .dt-nr { background: var(--ny); border-color: var(--ny); color: var(--ny-tekst); }
-    .ep-time-punkter li.er-naa { border-color: var(--navn); background: rgba(127, 140, 160, 0.16); }
-    .ep-time-punkter li.er-naa .dt-nr { background: var(--navn); border-color: var(--navn); color: var(--navn-tekst); }
+    .ep-time-punkter > li.er-ferdig { opacity: 0.5; }
+    .ep-time-punkter > li.er-ferdig > .ep-time-rad .ep-time-punkt { text-decoration: line-through; }
+    .ep-time-punkter > li.er-ferdig > .ep-time-rad .dt-nr { background: var(--ny); border-color: var(--ny); color: var(--ny-tekst); }
+    .ep-time-punkter > li.er-naa { border-color: var(--navn); background: rgba(127, 140, 160, 0.16); }
+    .ep-time-punkter > li.er-naa > .ep-time-rad .dt-nr { background: var(--navn); border-color: var(--navn); color: var(--navn-tekst); }
+    /* Underpunkter: rykket inn, mindre, med a, b, c */
+    .ep-time-under {
+        list-style: none;
+        margin: 4px 0 0 1.9em;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        font-size: 0.85em;
+        font-weight: 600;
+    }
+    .ep-time-under > li { padding: 2px 8px; border: 2px dashed transparent; border-radius: var(--radius-m); }
+    .ep-time-under > li.er-ferdig { opacity: 0.55; }
+    .ep-time-under > li.er-ferdig .ep-time-punkt { text-decoration: line-through; }
+    .ep-time-under > li.er-ferdig .dt-nr { background: var(--ny); border-color: var(--ny); color: var(--ny-tekst); }
+    .ep-time-under > li.er-naa { border-color: var(--navn); }
+    .ep-time-under > li.er-naa .dt-nr { background: var(--navn); border-color: var(--navn); color: var(--navn-tekst); }
 
     /* ── Nedtellinger (i stedet for kortene i høyre hjørne) ── */
     .ep-nedtellinger {

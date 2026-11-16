@@ -127,4 +127,5 @@ export const TEGNINGER = {
   'merge': [["path", {"d": "m8 6 4-4 4 4"}], ["path", {"d": "M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22"}], ["path", {"d": "m20 22-5-5"}]],
   'circle-check': [["circle", {"cx": "12", "cy": "12", "r": "10"}], ["path", {"d": "m9 12 2 2 4-4"}]],
   'minus': [["path", {"d": "M5 12h14"}]],
+  'corner-down-right': [["polyline", {"points": "15 10 20 15 15 20"}], ["path", {"d": "M4 4v7a4 4 0 0 0 4 4h12"}]],
 };

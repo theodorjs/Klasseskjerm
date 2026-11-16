@@ -138,14 +138,40 @@
     font-variant-numeric: tabular-nums;
 }
 .dt-punkt-tekst { min-width: 0; overflow-wrap: anywhere; }
-.dt-agenda li.er-ferdig .dt-punkt { opacity: 0.45; }
-.dt-agenda li.er-ferdig .dt-punkt-tekst { text-decoration: line-through; text-decoration-thickness: 3px; }
-.dt-agenda li.er-ferdig .dt-nr { background: var(--ny); border-color: var(--ny); color: var(--ny-tekst); }
-.dt-agenda li.er-naa .dt-punkt {
+.dt-agenda > li.er-ferdig > .dt-punkt,
+.dt-under > li.er-ferdig > .dt-punkt { opacity: 0.45; }
+.dt-agenda > li.er-ferdig > .dt-punkt .dt-punkt-tekst,
+.dt-under > li.er-ferdig > .dt-punkt .dt-punkt-tekst { text-decoration: line-through; text-decoration-thickness: 3px; }
+.dt-agenda > li.er-ferdig > .dt-punkt .dt-nr,
+.dt-under > li.er-ferdig > .dt-punkt .dt-nr { background: var(--ny); border-color: var(--ny); color: var(--ny-tekst); }
+.dt-agenda > li.er-naa > .dt-punkt {
     border-color: var(--navn);
     background: rgba(127, 140, 160, 0.16);
 }
-.dt-agenda li.er-naa .dt-nr { background: var(--navn); border-color: var(--navn); color: var(--navn-tekst); }
+.dt-agenda > li.er-naa > .dt-punkt .dt-nr { background: var(--navn); border-color: var(--navn); color: var(--navn-tekst); }
+
+/* Underpunkter: rykket inn under punktet sitt, litt mindre, med a, b, c */
+.dt-under {
+    list-style: none;
+    margin: 2px 0 4px;
+    padding: 0 0 0 clamp(28px, 3.2vw, 56px);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+/* Størrelsen følger punktene (som skaleres med skjermen), litt mindre */
+.dt-punkt.dt-punkt--under {
+    font-weight: 600;
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+.dt-punkt--under .dt-punkt-tekst { font-size: 0.82em; }
+.dt-punkt--under .dt-nr { font-size: 0.66em; }
+.dt-under > li.er-naa > .dt-punkt {
+    border-color: var(--navn);
+    border-style: dashed;
+}
+.dt-under > li.er-naa > .dt-punkt .dt-nr { background: var(--navn); border-color: var(--navn); color: var(--navn-tekst); }
 
 /* Små instrumentknapper for læreren: dempet til musa er over kortet */
 .dt-verktoy {
@@ -246,6 +272,21 @@
 }
 .dt-nytt-punkt { align-self: flex-start; }
 
+/* Dialogen: underpunkter rykkes inn og får bokstav */
+.dt-punktrad--under { padding-left: 36px; }
+.dt-punktrad--under .dt-punktnr { width: 24px; height: 24px; font-size: 0.8rem; border-radius: 8px; }
+.k-close.dt-nivaa {
+    position: static;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    font-size: 0.95rem;
+    box-shadow: none;
+}
+.k-close.dt-nivaa:disabled { visibility: hidden; }
+.k-close.dt-nivaa.er-under { color: var(--tilbake); }
+.dt-hint .ikon { width: 1em; height: 1em; vertical-align: -0.15em; }
+
 /* ─── Fagmerket: symbol i fagfargen, på kortet og i dialogen ──────── */
 .dt-fagmerke {
     flex: 0 0 auto;
@@ -299,3 +340,9 @@ body.colorful-mode .dt-fagmerke.is-noytral { background: rgba(255, 255, 255, 0.2
 
 /* Eksempeltekst skal ikke kunne forveksles med noe som alt er fylt inn */
 .k-dialog--time .k-input::placeholder { color: var(--tekst-svak); font-weight: 500; font-style: italic; }
+
+/* Telefon: tidsfeltene deler bredden, og underpunktene rykkes mindre inn */
+@media (max-width: 520px) {
+    .dt-tidsfelt { flex: 1 1 0; min-width: 0; }
+    .dt-punktrad--under { padding-left: 18px; }
+}

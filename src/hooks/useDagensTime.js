@@ -35,6 +35,23 @@ export function tolkKlokkeslett(verdi) {
   return `${tosifret(t)}:${tosifret(m)}`;
 }
 
+/** Ett nivå med underpunkter: { tekst, ferdig, under: [{ tekst, ferdig }] } */
+function rensPunkter(liste) {
+  if (!Array.isArray(liste)) return [];
+  return liste
+    .filter(p => p && typeof p.tekst === 'string' && p.tekst.trim())
+    .map(p => {
+      const under = Array.isArray(p.under)
+        ? p.under
+          .filter(u => u && typeof u.tekst === 'string' && u.tekst.trim())
+          .map(u => ({ tekst: u.tekst, ferdig: !!u.ferdig }))
+        : [];
+      // Et punkt med underpunkter er ferdig når alle underpunktene er det
+      const ferdig = under.length ? under.every(u => u.ferdig) : !!p.ferdig;
+      return { tekst: p.tekst, ferdig, under };
+    });
+}
+
 function rensTime(t) {
   if (!t || typeof t !== 'object') return null;
   const fra = tolkKlokkeslett(t.fra);
@@ -51,11 +68,7 @@ function rensTime(t) {
     fra,
     til,
     maal: typeof t.maal === 'string' ? t.maal : '',
-    punkter: Array.isArray(t.punkter)
-      ? t.punkter
-        .filter(p => p && typeof p.tekst === 'string' && p.tekst.trim())
-        .map(p => ({ tekst: p.tekst, ferdig: !!p.ferdig }))
-      : [],
+    punkter: rensPunkter(t.punkter),
     fast: !!t.fast,
     fastVed: Number.isFinite(t.fastVed) ? t.fastVed : null,
     skjult: !!t.skjult,
@@ -105,6 +118,15 @@ export function timeTittel(time) {
   return (time?.tittel || '').trim() || time?.fag || '';
 }
 
+/**
+ * Underpunktene til ferdige punkter skjules, så lista ikke blir lang. Det
+ * sist ferdige punktet beholder dem, så et trykk for mye kan angres.
+ */
+export function sisteFerdigePunkt(punkter) {
+  const forsteApne = punkter.findIndex(p => !p.ferdig);
+  return (forsteApne === -1 ? punkter.length : forsteApne) - 1;
+}
+
 /** «35 min», «1 t 10 min» */
 export function minTekst(n) {
   const m = Math.max(0, Math.round(n));
@@ -130,8 +152,10 @@ export function timeStatus(time, minutter) {
   if (paagaar) status = `${minTekst(slutt - minutter)} igjen`;
   else if (foer) status = start - minutter <= 90 ? `Starter om ${minTekst(start - minutter)}` : `Starter kl. ${time.fra}`;
   const naaIndex = paagaar ? time.punkter.findIndex(p => !p.ferdig) : -1;
+  // Underpunktet klassen er på, inni punktet som pågår
+  const naaUnder = naaIndex >= 0 ? (time.punkter[naaIndex].under || []).findIndex(u => !u.ferdig) : -1;
   const framdrift = paagaar ? Math.min(100, Math.max(0, ((minutter - start) / Math.max(1, slutt - start)) * 100)) : null;
-  return { start, slutt, paagaar, foer, status, naaIndex, framdrift };
+  return { start, slutt, paagaar, foer, status, naaIndex, naaUnder, framdrift };
 }
 
 export function useDagensTime() {
@@ -169,10 +193,24 @@ export function useDagensTime() {
     setTimer(prev => prev.map(t => (t.id === id ? { ...t, skjult: true, fast: false } : t)));
   }, []);
 
-  const vekslePunkt = useCallback((id, index) => {
+  /**
+   * Krysser av et punkt (underIndex null) eller et underpunkt. Et punkt med
+   * underpunkter krysser av (eller fjerner) alle underpunktene på én gang, og
+   * er ferdig når alle underpunktene er det.
+   */
+  const vekslePunkt = useCallback((id, index, underIndex = null) => {
     setTimer(prev => prev.map(t => {
       if (t.id !== id) return t;
-      const punkter = t.punkter.map((p, i) => (i === index ? { ...p, ferdig: !p.ferdig } : p));
+      const punkter = t.punkter.map((p, i) => {
+        if (i !== index) return p;
+        const under = p.under || [];
+        if (underIndex != null) {
+          const nyUnder = under.map((u, j) => (j === underIndex ? { ...u, ferdig: !u.ferdig } : u));
+          return { ...p, under: nyUnder, ferdig: nyUnder.length > 0 && nyUnder.every(u => u.ferdig) };
+        }
+        const ferdig = !p.ferdig;
+        return { ...p, ferdig, under: under.map(u => ({ ...u, ferdig })) };
+      });
       return { ...t, punkter };
     }));
   }, []);

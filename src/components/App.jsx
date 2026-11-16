@@ -337,7 +337,7 @@ export default function App() {
               minutter={currentMinutes}
               onEndre={() => openPlanlegg(synligTime.id)}
               onSkjul={() => dagensTime.skjulTime(synligTime.id)}
-              onVekslePunkt={(i) => dagensTime.vekslePunkt(synligTime.id, i)}
+              onVekslePunkt={(i, j) => dagensTime.vekslePunkt(synligTime.id, i, j)}
             />
           ) : (
             <MainContainer
