@@ -27,7 +27,20 @@ function FagMerke({ merke, className = '' }) {
 
 export function DagensTimeKort({ time, minutter, merke, onEndre, onSkjul, onVekslePunkt }) {
   const { status, naaIndex, framdrift } = timeStatus(time, minutter);
-  const mangePunkter = time.punkter.length > 4;
+  const listeRef = useRef(null);
+
+  // Lang agenda ruller inni kortet: punktet klassen er på holdes i syne
+  useEffect(() => {
+    const ol = listeRef.current;
+    if (!ol || naaIndex < 0 || ol.scrollHeight <= ol.clientHeight) return;
+    const li = ol.children[naaIndex];
+    if (!li) return;
+    const boks = ol.getBoundingClientRect();
+    const rad = li.getBoundingClientRect();
+    if (rad.top < boks.top || rad.bottom > boks.bottom) {
+      ol.scrollTop += rad.top - boks.top - 8;
+    }
+  }, [naaIndex]);
   const tittel = timeTittel(time);
 
   return (
@@ -65,7 +78,7 @@ export function DagensTimeKort({ time, minutter, merke, onEndre, onSkjul, onVeks
       )}
 
       {time.punkter.length > 0 && (
-        <ol className={`dt-agenda${mangePunkter ? ' er-mange' : ''}`}>
+        <ol className="dt-agenda" ref={listeRef}>
           {time.punkter.map((p, i) => (
             <li key={i} className={`${p.ferdig ? 'er-ferdig' : ''}${i === naaIndex ? ' er-naa' : ''}`.trim() || undefined}>
               <button

@@ -63,13 +63,13 @@
     transition: width 1s linear;
 }
 
-/* Læringsmålet: det viktigste etter tittelen */
+/* Læringsmålet: et smalt bånd over agendaen, så punktene får plassen */
 .dt-maal {
     display: flex;
     align-items: baseline;
-    gap: 8px 22px;
+    gap: 4px 16px;
     flex-wrap: wrap;
-    padding: clamp(12px, 1.8vh, 22px) clamp(16px, 1.6vw, 28px);
+    padding: clamp(6px, 1vh, 12px) clamp(12px, 1.2vw, 20px);
     border-radius: var(--radius-l);
     border-left: 8px solid var(--ny);
     background: rgba(127, 140, 160, 0.14);
@@ -78,7 +78,7 @@
     display: inline-flex;
     align-items: center;
     gap: 0.35em;
-    font-size: clamp(1rem, 1.5vw, 1.7rem);
+    font-size: clamp(0.8rem, 1.1vw, 1.2rem);
     font-weight: 800;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -87,13 +87,14 @@
 }
 .dt-maal-tekst {
     flex: 1 1 60%;
-    font-size: clamp(1.8rem, 3.4vw, 4rem);
-    font-weight: 800;
-    line-height: 1.12;
+    font-size: clamp(1.15rem, 2vw, 2.3rem);
+    font-weight: 700;
+    line-height: 1.15;
     overflow-wrap: anywhere;
 }
 
-/* Agendaen: nummerert, punktet klassen er på er markert */
+/* Agendaen: nummerert, ett punkt per linje i rekkefølge, punktet klassen
+   er på er markert. Blir lista lang, ruller den inni kortet. */
 .dt-agenda {
     list-style: none;
     margin: 0;
@@ -101,11 +102,6 @@
     display: flex;
     flex-direction: column;
     gap: clamp(4px, 0.8vh, 10px);
-}
-.dt-agenda.er-mange {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 24px;
 }
 .dt-punkt {
     appearance: none;
@@ -187,9 +183,8 @@
 @media (max-width: 1100px) {
     #main-container.dagens-time { width: 92vw; }
     .dt-tittel { font-size: clamp(2rem, 6.4vw, 4rem); }
-    .dt-maal-tekst { font-size: clamp(1.6rem, 4.6vw, 3rem); }
+    .dt-maal-tekst { font-size: clamp(1.1rem, 3vw, 1.9rem); }
     .dt-punkt { font-size: clamp(1.35rem, 3.8vw, 2.4rem); }
-    .dt-agenda.er-mange { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ─── Dialogen ───────────────────────────────────────────────────── */
