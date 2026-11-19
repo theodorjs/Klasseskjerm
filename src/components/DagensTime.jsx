@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import Dialog from './Dialog.jsx';
+import { createPortal } from 'react-dom';
+import useFlyttbartVindu from '../hooks/useFlyttbartVindu.js';
 import Info from './Info.jsx';
 import Ikon, { FagSymbol } from './Ikon.jsx';
 import { getMinutesFromTime, formatMinutesAsTime } from '../utils/time.js';
-import { tolkKlokkeslett, dagensDato, timeStatus, timeTittel, sisteFerdigePunkt, VIS_FOER_START } from '../hooks/useDagensTime.js';
+import { tolkKlokkeslett, dagensDato, timeStatus, timeTittel, sisteFerdigePunkt, lesUtkast, lagreUtkast, slettUtkast, VIS_FOER_START } from '../hooks/useDagensTime.js';
 import { getReadableAgendaTextColor } from '../utils/color.js';
 import { erElev, skoleTjeneste } from '../utils/ksTjeneste.js';
 
@@ -190,27 +191,56 @@ export function DagensTimeKort({ time, minutter, merke, onEndre, onSkjul, onVeks
 
 function PlanleggTimeInner({
   eksisterende, forslag, fagVed, minutter, dag, maler, merkeFor, editPermission,
-  onLagre, onLagreMal, onSlett, onAvbryt,
+  onLagre, onLagreMal, onAvbryt, onTom,
 }) {
+  // Utkastet: det læreren skrev sist, men ikke viste på tavla. Vinduet åpner der.
+  const gjelder = eksisterende?.id || 'ny';
+  const [utkast] = useState(() => lesUtkast(gjelder));
+  const u = utkast?.data || null;
+  // En ny agenda, eller en som er tatt med fra en tidligere dag, får tid og fag
+  // fra timen som er nå. Et utkast for en ny agenda beholder sin tid bare når
+  // det ble skrevet for den samme timen.
+  const nyTime = !eksisterende || !!eksisterende.overfort;
+  const tidFraUtkast = !!u && (!nyTime || u.forslagFra === forslag.fra);
+  const [forst] = useState(() => (tidFraUtkast
+    ? { fra: u.fra, til: u.til, fag: u.fag || '', fagNokkel: u.fagNokkel || '', tilRort: !!u.tilRort }
+    : nyTime
+      ? { fra: forslag.fra, til: forslag.til, fag: forslag.fag || '', fagNokkel: forslag.fagNokkel || '', tilRort: false }
+      : { fra: eksisterende.fra, til: eksisterende.til, fag: eksisterende.fag || '', fagNokkel: eksisterende.fagNokkel || '', tilRort: true }));
+
   // Faget følger starttiden: endrer læreren tiden til en annen time, byttes
   // faget (og malen) til den timen
-  const [{ fag, fagNokkel }, setFagInfo] = useState(() => (eksisterende
-    ? { fag: eksisterende.fag || '', fagNokkel: eksisterende.fagNokkel || '' }
-    : { fag: forslag.fag || '', fagNokkel: forslag.fagNokkel || '' }));
+  const [{ fag, fagNokkel }, setFagInfo] = useState({ fag: forst.fag, fagNokkel: forst.fagNokkel });
   const merke = merkeFor?.(fagNokkel) || null;
   const mal = fagNokkel ? maler?.[fagNokkel] : null;
-  // Rask vei: ny agenda i en time fra timeplanen. Da står faget og tiden på én
-  // linje, og markøren står i første punkt. Bestemmes én gang, når dialogen åpnes.
-  const [rask] = useState(() => !eksisterende && !!forslag.fag);
+  // Rask vei: en time fra timeplanen. Da står faget og tiden på én linje, og
+  // markøren står i første punkt. Bestemmes én gang, når vinduet åpnes.
+  const [rask] = useState(() => nyTime && !!forst.fag);
 
-  const [utvidet, setUtvidet] = useState(!rask);
-  const [visMaal, setVisMaal] = useState(!rask || !!eksisterende?.maal);
-  const [tittel, setTittel] = useState(eksisterende?.tittel || '');
-  const [fra, setFra] = useState(eksisterende?.fra || forslag.fra);
-  const [til, setTil] = useState(eksisterende?.til || forslag.til);
-  const [maal, setMaal] = useState(eksisterende?.maal || '');
-  const [rader, setRader] = useState(() => tilRader(eksisterende?.punkter));
-  const [tilRort, setTilRort] = useState(!!eksisterende);
+  const [utvidet, setUtvidet] = useState(tidFraUtkast ? !!u.utvidet : !rask);
+  const [visMaal, setVisMaal] = useState(u ? !!u.visMaal : (!rask || !!eksisterende?.maal));
+  const [tittel, setTittel] = useState(u ? u.tittel : (eksisterende?.tittel || ''));
+  const [fra, setFra] = useState(forst.fra);
+  const [til, setTil] = useState(forst.til);
+  const [maal, setMaal] = useState(u ? u.maal : (eksisterende?.maal || ''));
+  const [rader, setRader] = useState(() => (u?.rader?.length ? u.rader : tilRader(eksisterende?.punkter)));
+  const [tilRort, setTilRort] = useState(forst.tilRort);
+
+  // Lagrer utkastet mens læreren skriver. Er ingenting endret fra det som
+  // er lagret (eller tomt for en ny agenda), finnes det ikke noe utkast.
+  const [utgangspunkt] = useState(() => JSON.stringify({
+    tittel: eksisterende?.tittel || '', fra: forst.fra, til: forst.til,
+    maal: eksisterende?.maal || '', punkter: tilStruktur(tilRader(eksisterende?.punkter)),
+  }));
+  useEffect(() => {
+    const innhold = { tittel, fra, til, maal, punkter: tilStruktur(rader) };
+    const tomt = !tittel.trim() && !maal.trim() && !innhold.punkter.length;
+    if ((!eksisterende && tomt) || JSON.stringify(innhold) === utgangspunkt) {
+      slettUtkast(gjelder);
+      return;
+    }
+    lagreUtkast(gjelder, { tittel, fra, til, maal, rader, fag, fagNokkel, utvidet, visMaal, tilRort, forslagFra: forslag.fra });
+  }, [tittel, fra, til, maal, rader, fag, fagNokkel, utvidet, visMaal, tilRort, eksisterende, gjelder, utgangspunkt, forslag.fra]);
   const [visFeil, setVisFeil] = useState(false);
   const [malMelding, setMalMelding] = useState('');
 
@@ -224,9 +254,12 @@ function PlanleggTimeInner({
 
   useEffect(() => {
     const id = setTimeout(() => {
-      const el = rask ? punktRefs.current[0] : tittelRef.current;
-      el?.focus();
-      el?.select?.();
+      const el = (rask ? punktRefs.current[0] : tittelRef.current) || punktRefs.current[0];
+      if (!el) return;
+      el.focus();
+      // Et tomt felt markeres; står det tekst der (fra et utkast), havner markøren bakerst
+      const len = el.value?.length || 0;
+      try { if (len) el.setSelectionRange(len, len); else el.select?.(); } catch { /* ikke alle felt */ }
     }, 50);
     return () => clearTimeout(id);
   }, [rask]);
@@ -295,6 +328,7 @@ function PlanleggTimeInner({
       if (!tidOk) setUtvidet(true);
       return;
     }
+    slettUtkast(gjelder);
     onLagre({
       id: eksisterende?.id || null, // ny time får id når den lagres
       dato: dagensDato(),
@@ -455,7 +489,15 @@ function PlanleggTimeInner({
   const langtFram = start != null && naa < start - VIS_FOER_START;
 
   return (
-    <Dialog onClose={onAvbryt} title={eksisterende ? 'Endre agendaen' : 'Agenda for timen'} className="k-dialog--time" bred>
+    <AgendaVindu tittel={eksisterende ? 'Endre agendaen' : 'Agenda for timen'} onLukk={onAvbryt}>
+      {eksisterende?.overfort && !utkast && (
+        <div className="dt-utkast" role="status">Det som ikke ble krysset av sist, står her fortsatt. Trykk «Tøm» for å begynne på nytt.</div>
+      )}
+      {utkast && (
+        <div className="dt-utkast" role="status">
+          Fortsetter det du skrev kl. {new Date(utkast.lagret).toLocaleTimeString('no-NO', { hour: '2-digit', minute: '2-digit' })}.
+        </div>
+      )}
       {!utvidet ? (
         <div className="dt-sammendrag">
           <FagMerke merke={merke || { symbol: null, farge: null }} />
@@ -619,11 +661,19 @@ function PlanleggTimeInner({
             Vis først kl. {formatMinutesAsTime(start - VIS_FOER_START)}
           </button>
         )}
-        <button type="button" className="k-btn k-btn--tilbake" onClick={onAvbryt}>Avbryt</button>
-        {eksisterende && (
-          <button type="button" className="k-btn k-btn--slett" onClick={() => { if (confirm('Slette agendaen?')) onSlett(eksisterende.id); }}>
-            Slett
-          </button>
+        <button type="button" className="k-btn k-btn--tilbake" onClick={onAvbryt} title="Det du har skrevet tas vare på til neste gang">Lukk</button>
+        {(eksisterende || utkast || harInnhold) && (
+          <button
+            type="button"
+            className="k-btn k-btn--slett"
+            id="time-tom"
+            title="Fjerner punktene, målet og tittelen, så du kan begynne på nytt"
+            onClick={() => {
+              if (!confirm('Tømme agendaen? Punktene, målet og tittelen fjernes.')) return;
+              slettUtkast(gjelder);
+              onTom?.(eksisterende?.id || null);
+            }}
+          ><Ikon navn="trash-2" /> Tøm</button>
         )}
       </div>
 
@@ -645,7 +695,81 @@ function PlanleggTimeInner({
           </span>
         </div>
       )}
-    </Dialog>
+    </AgendaVindu>
+  );
+}
+
+/**
+ * Vinduet rundt agendaen: ligger over tavla uten å dekke den, kan dras i
+ * toppen og endres i størrelse i hjørnet, så det kan stå ved siden av
+ * nedtelleren. Plassen huskes.
+ */
+function AgendaVindu({ tittel, onLukk, children }) {
+  const { ref, stil, flyttHandlere, skalerHandlere, tilAndreSide, tilVenstre } = useFlyttbartVindu('klasseskjerm.agendaVindu', { minB: 340, minH: 300 });
+
+  // Nedtelleren legger seg på motsatt side, så de kan stå side om side
+  useEffect(() => {
+    document.body.classList.add('agenda-vindu-apen');
+    document.body.classList.toggle('agenda-til-venstre', tilVenstre);
+    return () => document.body.classList.remove('agenda-vindu-apen', 'agenda-til-venstre');
+  }, [tilVenstre]);
+
+  // Ligger vinduene oppå hverandre (stående iPad), kommer det man sist rørte, øverst
+  useEffect(() => {
+    document.body.classList.add('agenda-forrest');
+    function vedTrykk(e) {
+      const iAgenda = ref.current?.contains(e.target);
+      const iNedteller = e.target.closest?.('#timer-panel');
+      if (iAgenda) document.body.classList.add('agenda-forrest');
+      else if (iNedteller) document.body.classList.remove('agenda-forrest');
+    }
+    document.addEventListener('pointerdown', vedTrykk, true);
+    return () => {
+      document.removeEventListener('pointerdown', vedTrykk, true);
+      document.body.classList.remove('agenda-forrest');
+    };
+  }, [ref]);
+
+  // Escape lukker når markøren står i vinduet (utkastet tas vare på)
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (!ref.current?.contains(document.activeElement)) return;
+      e.preventDefault();
+      onLukk?.();
+    }
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onLukk, ref]);
+
+  return createPortal(
+    <section
+      ref={ref}
+      className="agenda-vindu"
+      style={stil}
+      role="dialog"
+      aria-modal="false"
+      aria-label={tittel}
+    >
+      <header className="agenda-vindu-hode" {...flyttHandlere}>
+        <h2 className="agenda-vindu-tittel">{tittel}</h2>
+        <button
+          type="button"
+          className="k-close agenda-vindu-knapp"
+          aria-label={tilVenstre ? 'Flytt vinduet til høyre side' : 'Flytt vinduet til venstre side'}
+          title={tilVenstre ? 'Flytt til høyre' : 'Flytt til venstre'}
+          onClick={tilAndreSide}
+        ><Ikon navn="columns-2" /></button>
+        <button type="button" className="k-close agenda-vindu-knapp" aria-label="Lukk (utkastet tas vare på)" title="Lukk" onClick={onLukk}>
+          <Ikon navn="x" />
+        </button>
+      </header>
+      <div className="k-dialog k-dialog--time agenda-vindu-innhold">
+        {children}
+      </div>
+      <div className="agenda-vindu-grep" aria-hidden="true" {...skalerHandlere} />
+    </section>,
+    document.body,
   );
 }
 

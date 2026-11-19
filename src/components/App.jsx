@@ -22,7 +22,7 @@ import { getCurrentSubjectColor } from '../utils/color.js';
 import WallScreen from './WallScreen.jsx';
 import ForsteMote from './ForsteMote.jsx';
 import { DagensTimeKort, PlanleggTimeDialog } from './DagensTime.jsx';
-import { useDagensTime, finnSynligTime, dagensDato, timeTittel } from '../hooks/useDagensTime.js';
+import { useDagensTime, finnSynligTime, dagensDato, timeTittel, gjeldendeAgenda } from '../hooks/useDagensTime.js';
 import { formatMinutesAsTime } from '../utils/time.js';
 import { formatExpandedActivityDisplay, normalizeSubjectLabel, getStoredSubjectEmoji } from '../utils/schedule.js';
 import useBursdager from '../hooks/useBursdager.js';
@@ -87,6 +87,8 @@ export default function App() {
   const [planleggId, setPlanleggId] = useState(null);
   // Forslaget fryses når dialogen åpnes, så faget ikke bytter ved et timeskifte
   const [planleggForslag, setPlanleggForslag] = useState(null);
+  // Ny runde = vinduet bygges på nytt (ny agenda åpnet, eller «Start på nytt»)
+  const [planleggRunde, setPlanleggRunde] = useState(0);
 
   // Clock tick state
   const [tick, setTick] = useState(0);  // eslint-disable-line no-unused-vars
@@ -173,8 +175,13 @@ export default function App() {
   const displayStates = timelineClassNames
     .map(name => getClassScheduleState(name, currentDay, currentMinutes, classes, tempScheduleChanges))
     .filter(Boolean);
-  // Bursdagene for klassene som vises (bare på skolens egen adresse)
-  const { bursdager, sprekk: sprekkBallong } = useBursdager(displayStates.map(s => s.className));
+  // Bursdagene for klassene som vises (bare på skolens egen adresse).
+  // En sprukket ballong blåses opp igjen når neste time starter: «økta» er
+  // starten på timen som pågår, eller timen som var sist (i friminuttet).
+  const okt = (primaryState?.normalizedDayEvents || [])
+    .filter(e => e.type === 'class' && e.start <= currentMinutes)
+    .reduce((siste, e) => Math.max(siste, e.start), -1);
+  const { bursdager, ballonger, sprekk: sprekkBallong, blaasOpp: blaasOppBallong } = useBursdager(displayStates.map(s => s.className), okt);
 
   const isWeekend = (now.getDay() === 0 || now.getDay() === 6) && !isSim;
 
@@ -235,8 +242,12 @@ export default function App() {
     return { symbol: symbol && symbol !== 'circle-help' ? symbol : null, farge };
   }
   function openPlanlegg(id) {
-    setPlanleggForslag(lagForslag());
-    setPlanleggId(id ?? synligTime?.id ?? null);
+    const forslag = lagForslag();
+    setPlanleggForslag(forslag);
+    // Agendaen som står på tavla, ellers den læreren sist lagret (også en
+    // som er skjult eller tatt med fra i går), ellers en ny
+    setPlanleggId(id ?? synligTime?.id ?? gjeldendeAgenda(dagensTime.timer)?.id ?? null);
+    setPlanleggRunde(n => n + 1);
     setPlanleggOpen(true);
   }
 
@@ -366,8 +377,9 @@ export default function App() {
             onEditCountdown={(index) => setCountdownModal({ index })}
             dagensTime={synligTime}
             onOpenTimer={() => setTimerPanelOpen(true)}
-            bursdager={bursdager}
+            bursdager={ballonger}
             onSprekk={sprekkBallong}
+            onBlaasOpp={blaasOppBallong}
           />
         </div>
 
@@ -413,8 +425,9 @@ export default function App() {
         countdowns={countdowns}
         countdownsVisible={countdownsVisible}
         onEditCountdown={(index) => setCountdownModal({ index })}
-        bursdager={bursdager}
+        bursdager={ballonger}
         onSprekk={sprekkBallong}
+        onBlaasOpp={blaasOppBallong}
       />
 
       <TimerPanel
@@ -493,6 +506,7 @@ export default function App() {
       />
 
       <PlanleggTimeDialog
+        key={planleggRunde}
         open={planleggOpen}
         eksisterende={planleggEksisterende}
         forslag={planleggForslag}
@@ -504,8 +518,14 @@ export default function App() {
         minutter={currentMinutes}
         dag={currentDay}
         onLagre={(time) => { dagensTime.lagreTime(time); setPlanleggOpen(false); }}
-        onSlett={(id) => { dagensTime.slettTime(id); setPlanleggOpen(false); }}
         onAvbryt={() => setPlanleggOpen(false)}
+        onTom={(id) => {
+          // «Tøm»: agendaen fjernes, og vinduet står klart for en ny
+          if (id) dagensTime.slettTime(id);
+          setPlanleggId(null);
+          setPlanleggForslag(lagForslag());
+          setPlanleggRunde(n => n + 1);
+        }}
       />
 
       {/* Modals */}

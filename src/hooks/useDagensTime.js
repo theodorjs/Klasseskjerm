@@ -1,12 +1,50 @@
 import { useCallback, useEffect, useState } from 'react';
-import { safeGetItem, safeSetItem } from '../utils/storage.js';
+import { safeGetItem, safeSetItem, safeRemoveItem } from '../utils/storage.js';
 import { getOsloDateParts, getMinutesFromTime } from '../utils/time.js';
 
-/* «Agenda for timen»: tittel, tid, læringsmål og agenda som læreren setter opp for
-   én time i dag. Lagres for seg (ikke i klassedataene), gjelder bare denne
-   skjermen og bare i dag, så den kan aldri ødelegge timeplanen. */
+/* «Agenda for timen»: tittel, tid, læringsmål og agenda som læreren setter opp.
+   Lagres for seg (ikke i klassedataene) og gjelder bare denne skjermen, så den
+   kan aldri ødelegge timeplanen. Agendaen blir værende til læreren tømmer den.
+   Når dagen skifter, forsvinner punktene som er krysset av; resten blir med
+   videre (skjult fra tavla til læreren viser den igjen). */
 
 export const DAGENS_TIME_KEY = 'klasseskjerm.dagensTimer';
+
+/** Utkastene i «Agenda for timen»: det læreren skriver, før det vises på tavla */
+export const AGENDA_UTKAST_KEY = 'klasseskjerm.agendaUtkast';
+
+function lesAlleUtkast() {
+  try {
+    const u = JSON.parse(safeGetItem(AGENDA_UTKAST_KEY) || 'null');
+    return u && u.utkast && typeof u.utkast === 'object' ? u.utkast : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Utkastet for en agenda (id) eller en ny agenda ('ny'): { lagret, data }.
+ * Hver agenda har sitt eget, så de aldri overskriver hverandre. Gjør at
+ * ingenting går tapt når vinduet lukkes før «Vis på tavla».
+ */
+export function lesUtkast(gjelder) {
+  const u = lesAlleUtkast()[gjelder];
+  return u && u.data ? u : null;
+}
+
+export function lagreUtkast(gjelder, data) {
+  const alle = lesAlleUtkast();
+  alle[gjelder] = { lagret: Date.now(), data };
+  safeSetItem(AGENDA_UTKAST_KEY, JSON.stringify({ utkast: alle }));
+}
+
+export function slettUtkast(gjelder) {
+  const alle = lesAlleUtkast();
+  if (!(gjelder in alle)) return;
+  delete alle[gjelder];
+  if (Object.keys(alle).length) safeSetItem(AGENDA_UTKAST_KEY, JSON.stringify({ utkast: alle }));
+  else safeRemoveItem(AGENDA_UTKAST_KEY);
+}
 
 /** Minutter før start da timen dukker opp på tavla av seg selv */
 export const VIS_FOER_START = 10;
@@ -72,7 +110,38 @@ function rensTime(t) {
     fast: !!t.fast,
     fastVed: Number.isFinite(t.fastVed) ? t.fastVed : null,
     skjult: !!t.skjult,
+    // Sist lagret (velger agendaen verktøyet åpner), og om den er tatt med fra en tidligere dag
+    endret: Number.isFinite(t.endret) ? t.endret : 0,
+    overfort: !!t.overfort,
   };
+}
+
+/** Punktene som ikke er ferdige; underpunkter som er krysset av, tas også bort */
+function uferdigePunkter(punkter) {
+  return punkter
+    .filter(p => !p.ferdig)
+    .map(p => ({ ...p, under: (p.under || []).filter(u => !u.ferdig) }));
+}
+
+/**
+ * Ny dag: agendaen fra en tidligere dag blir med videre, uten punktene som er
+ * krysset av. Den skjules fra tavla til læreren viser den igjen. Står det ikke
+ * noe igjen, forsvinner den. Bare den sist endrede tas med.
+ */
+export function overforTilIdag(timer, idag = dagensDato()) {
+  const gamle = timer.filter(t => t.dato < idag);
+  if (!gamle.length) return timer;
+  const iDag = timer.filter(t => t.dato >= idag);
+  const siste = gamle.reduce((a, b) => ((b.endret || 0) >= (a.endret || 0) ? b : a));
+  const punkter = uferdigePunkter(siste.punkter);
+  if (!punkter.length || iDag.length) return iDag;
+  return [...iDag, { ...siste, dato: idag, dag: '', punkter, skjult: true, fast: false, fastVed: null, overfort: true }];
+}
+
+/** Agendaen verktøyet åpner: den læreren sist lagret */
+export function gjeldendeAgenda(timer) {
+  if (!timer.length) return null;
+  return timer.reduce((a, b) => ((b.endret || 0) >= (a.endret || 0) ? b : a));
 }
 
 /** Dagens timer slik de er lagret nå (bare i dag). Leser, skriver aldri. */
@@ -82,9 +151,7 @@ export function lesTimer() {
     if (!raw) return [];
     const liste = JSON.parse(raw);
     if (!Array.isArray(liste)) return [];
-    const idag = dagensDato();
-    // Gamle dager ryddes bort; dagens time er bare for i dag
-    return liste.map(rensTime).filter(t => t && t.dato === idag);
+    return overforTilIdag(liste.map(rensTime).filter(Boolean));
   } catch {
     return [];
   }
@@ -165,17 +232,16 @@ export function useDagensTime() {
     safeSetItem(DAGENS_TIME_KEY, JSON.stringify(timer));
   }, [timer]);
 
-  // Ved midnatt (eller når fanen har stått åpen over natta) ryddes gårsdagen bort
+  // Ved midnatt (eller når fanen har stått åpen over natta): ferdige punkter bort, resten videre
   useEffect(() => {
     const id = setInterval(() => {
-      const idag = dagensDato();
-      setTimer(prev => (prev.some(t => t.dato !== idag) ? prev.filter(t => t.dato === idag) : prev));
+      setTimer(prev => overforTilIdag(prev));
     }, 60000);
     return () => clearInterval(id);
   }, []);
 
   const lagreTime = useCallback((time) => {
-    const ren = rensTime(time);
+    const ren = rensTime({ ...time, endret: Date.now(), overfort: false });
     if (!ren) return;
     setTimer(prev => {
       // Samme time (id) eller samme starttid erstattes; ellers legges den til

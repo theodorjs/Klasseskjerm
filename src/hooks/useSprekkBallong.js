@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 /** Hvor lenge ballongen sprekker før kortet tas bort (samme som i del-bursdag.css). */
 export const SPREKK_MS = 750;
 
+
 function vilHaRo() {
   try {
     return globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
@@ -16,8 +17,9 @@ function vilHaRo() {
  * Svarer { sprekker: nøklene som sprekker nå, sprekk(nokkel) }.
  * Med «redusert bevegelse» forsvinner den med en gang, uten animasjon.
  */
-export default function useSprekkBallong(onSprekk) {
+export default function useSprekkBallong(onSprekk, onBlaasOpp) {
   const [sprekker, setSprekker] = useState([]);
+  const [blaases, setBlaases] = useState([]);
   const tidtakere = useRef(new Map());
   const siste = useRef(onSprekk);
   useEffect(() => { siste.current = onSprekk; }, [onSprekk]);
@@ -33,6 +35,7 @@ export default function useSprekkBallong(onSprekk) {
 
   const sprekk = useCallback((nokkel) => {
     if (tidtakere.current.has(nokkel)) return;
+    setBlaases(s => s.filter(k => k !== nokkel));
     if (vilHaRo()) { siste.current?.(nokkel); return; }
     setSprekker(s => [...s, nokkel]);
     tidtakere.current.set(nokkel, setTimeout(() => {
@@ -42,5 +45,14 @@ export default function useSprekkBallong(onSprekk) {
     }, SPREKK_MS));
   }, []);
 
-  return { sprekker, sprekk };
+  // Blåser en sprukket ballong opp igjen: den vokser fra slapp til full størrelse.
+  // Merket blir stående til ballongen sprekker på nytt, så animasjonen ikke
+  // byttes ut midtveis (da ville ballongen «stige» inn en gang til).
+  const blaas = useCallback((nokkel) => {
+    onBlaasOpp?.(nokkel);
+    if (vilHaRo()) return;
+    setBlaases(s => (s.includes(nokkel) ? s : [...s, nokkel]));
+  }, [onBlaasOpp]);
+
+  return { sprekker, sprekk, blaases, blaas };
 }

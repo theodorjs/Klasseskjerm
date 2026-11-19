@@ -68,6 +68,12 @@ export default function TimerPanel({ open, onClose, onRequestOpen, subjectColor,
   const controlsRef = useRef(null);
 
   useEffect(() => { if (!egenSide) saveTimerPosition(pos); }, [pos, egenSide]);
+  // Stor visning fyller tavla: andre vinduer (agendaen) viker så lenge
+  useEffect(() => {
+    const stor = open && big;
+    document.body.classList.toggle('nedteller-stor', stor);
+    return () => document.body.classList.remove('nedteller-stor');
+  }, [open, big]);
 
   // Stor visning: skiva og tallene får vite hvor høy knappraden nederst er (én eller
   // flere rader, etter skjermbredden), så de aldri vokser ned i den

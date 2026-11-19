@@ -213,15 +213,122 @@
     .dt-punkt { font-size: clamp(1.35rem, 3.8vw, 2.4rem); }
 }
 
-/* ─── Dialogen ───────────────────────────────────────────────────── */
+/* ─── Vinduet: flyttbart og skalerbart, uten mørk bakgrunn ─────────
+   Står til høyre som standard, så nedtelleren kan stå til venstre.
+   Dras i toppen, endrer størrelse i hjørnet nede til høyre. */
 
-.k-dialog.k-dialog--time {
-    max-width: 620px;
-    /* Fast øverst: når en melding dukker opp, vokser dialogen nedover i stedet
-       for å hoppe, så feltene står der læreren skal trykke */
-    align-self: flex-start;
-    margin-top: max(12px, 7vh);
-    max-height: calc(100vh - max(12px, 7vh) - 16px);
+.agenda-vindu {
+    position: fixed;
+    z-index: 5900; /* over klokka (5000) og nedtellingene, under nedtelleren (6000) og dialogene */
+    top: calc(84px + var(--topp));
+    right: 16px;
+    width: min(560px, calc(100vw - 32px));
+    height: calc(100vh - 100px - var(--topp));
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    border-radius: var(--radius-l);
+    background: var(--instrument);
+    border: 1px solid var(--instrument-kant);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35), inset 0 1px 0 var(--instrument-lys);
+    color: var(--tekst);
+    overflow: hidden;
+    animation: k-dialog-inn 0.18s ease-out;
+}
+.agenda-vindu-hode {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 8px 8px 18px;
+    border-bottom: 1px solid var(--instrument-kant);
+    background: var(--instrument-2);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.agenda-vindu-hode:active { cursor: grabbing; }
+.agenda-vindu-tittel { flex: 1; min-width: 0; margin: 0; font-size: 1.15rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-close.agenda-vindu-knapp { position: static; flex: none; width: 40px; height: 40px; }
+
+/* Innholdet bruker dialogens stil, men fyller vinduet og ruller selv */
+.agenda-vindu .k-dialog.agenda-vindu-innhold {
+    flex: 1;
+    min-height: 0;
+    max-width: none;
+    max-height: none;
+    width: auto;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 16px 18px 28px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    animation: none;
+}
+
+/* Hjørnet nede til høyre: dra for å endre størrelse (stort nok for en finger) */
+.agenda-vindu-grep {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 32px;
+    height: 32px;
+    cursor: nwse-resize;
+    touch-action: none;
+    background:
+        linear-gradient(135deg, transparent 0 55%, var(--tekst-svak) 55% 60%, transparent 60% 70%, var(--tekst-svak) 70% 75%, transparent 75%);
+    opacity: 0.8;
+}
+
+/* Nedtelleren (som ikke er flyttet for hånd) legger seg på motsatt side av
+   agendavinduet, så de står side om side i stedet for oppå hverandre */
+@media (min-width: 900px) {
+    body.agenda-vindu-apen .timer-panel.active:not(.is-moved):not(.is-big):not(.er-egen-side) {
+        left: 16px;
+        right: auto;
+        transform: none;
+    }
+    body.agenda-vindu-apen.agenda-til-venstre .timer-panel.active:not(.is-moved):not(.is-big):not(.er-egen-side) {
+        left: auto;
+        right: 16px;
+    }
+}
+
+/* Det sist rørte vinduet ligger øverst, når agendaen og nedtelleren overlapper */
+body.agenda-forrest .agenda-vindu { z-index: 6100; }
+
+/* Vinduet viker for den store nedtelleren og for «Klasse og timeplan»
+   (utkastet og plassen tas vare på) */
+body.nedteller-stor .agenda-vindu,
+body.under-the-hood-active .agenda-vindu { display: none; }
+
+/* «Nedteller»-knappen og den lille nedtelleren nede til høyre skal ikke
+   gjemme seg bak vinduet: de flytter til motsatt side mens det er åpent */
+body.agenda-vindu-apen:not(.agenda-til-venstre) .timer-launch,
+body.agenda-vindu-apen:not(.agenda-til-venstre) .timer-mini {
+    right: auto;
+    left: 35px;
+}
+
+/* Fortsetter et utkast: kort melding øverst */
+.dt-utkast {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    padding: 8px 12px;
+    border-radius: var(--radius-m);
+    background: var(--instrument-2);
+    font-size: 0.92rem;
+    color: var(--tekst-dempet);
+}
+
+/* Telefon: vinduet fyller bredden */
+@media (max-width: 600px) {
+    .agenda-vindu { right: 8px; width: calc(100vw - 16px); top: calc(64px + var(--topp)); height: calc(100vh - 72px - var(--topp)); }
 }
 
 .dt-tidsrad {

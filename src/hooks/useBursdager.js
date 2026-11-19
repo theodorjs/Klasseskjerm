@@ -18,9 +18,9 @@ const SJEKK_HVER_MS = 60 * 60 * 1000;
 function lesSprukket() {
   try {
     const s = JSON.parse(safeGetItem(SPRUKKET_KEY) || 'null');
-    return s && Array.isArray(s.nokler) ? s : { dag: null, nokler: [] };
+    return s && Array.isArray(s.nokler) ? s : { dag: null, okt: null, nokler: [] };
   } catch {
-    return { dag: null, nokler: [] };
+    return { dag: null, okt: null, nokler: [] };
   }
 }
 
@@ -28,9 +28,13 @@ function lesSprukket() {
  * Bursdagene som skal feires i dag for klassene som vises.
  * Henter lista fra skolens tjeneste når den er eldre enn et døgn
  * (sjekkes hver time, så en veggskjerm som står på i ukevis følger med).
- * Svarer { bursdager, sprekk(nokkel) }; en sprukket ballong er borte resten av dagen.
+ * Svarer { bursdager, ballonger, sprekk(nokkel), blaasOpp(nokkel) }:
+ * - bursdager: ballongene som er hele (veggskjermen viser bare disse)
+ * - ballonger: alle, med `sprukket`, så en sprukket ballong kan blåses opp igjen
+ * En sprukket ballong blåses opp igjen av seg selv når neste time starter
+ * (`okt` er starten på timen som pågår eller sist var), eller med et trykk.
  */
-export default function useBursdager(klassenavn) {
+export default function useBursdager(klassenavn, okt = null) {
   const skolensTjeneste = useMemo(() => skoleTjeneste(), []);
   const { bursdager: liste, elev } = useSyncExternalStore(lyttTilTjeneste, lesTjenesteTilstand);
   // Elevene får ingen bursdager, og tjenesten spørres ikke
@@ -46,9 +50,12 @@ export default function useBursdager(klassenavn) {
   }, [tjeneste]);
 
   const idag = osloIDag();
-  // Sprukne ballonger gjelder bare dagen de ble sprukket
+  // Sprukne ballonger gjelder bare timen de ble sprukket i
   const [sprukketLagret, setSprukket] = useState(lesSprukket);
-  const sprukket = useMemo(() => (sprukketLagret.dag === idag ? sprukketLagret.nokler : []), [sprukketLagret, idag]);
+  const sprukket = useMemo(
+    () => (sprukketLagret.dag === idag && sprukketLagret.okt === okt ? sprukketLagret.nokler : []),
+    [sprukketLagret, idag, okt],
+  );
 
   const erFridag = useMemo(() => lagErFridag(skoleFerier(aktivSkole()?.id)), []);
   const nokkel = (klassenavn || []).join('|');
@@ -72,13 +79,22 @@ export default function useBursdager(klassenavn) {
 
   const sprekk = useCallback((id) => {
     setSprukket(prev => {
-      const iDag = prev.dag === idag ? prev.nokler : [];
-      const neste = { dag: idag, nokler: iDag.includes(id) ? iDag : [...iDag, id] };
+      const naa = prev.dag === idag && prev.okt === okt ? prev.nokler : [];
+      const neste = { dag: idag, okt, nokler: naa.includes(id) ? naa : [...naa, id] };
       safeSetItem(SPRUKKET_KEY, JSON.stringify(neste));
       return neste;
     });
-  }, [idag]);
+  }, [idag, okt]);
 
-  const bursdager = useMemo(() => alle.filter(b => !sprukket.includes(b.nokkel)), [alle, sprukket]);
-  return { bursdager, sprekk };
+  const blaasOpp = useCallback((id) => {
+    setSprukket(prev => {
+      const neste = { ...prev, nokler: prev.nokler.filter(k => k !== id) };
+      safeSetItem(SPRUKKET_KEY, JSON.stringify(neste));
+      return neste;
+    });
+  }, []);
+
+  const ballonger = useMemo(() => alle.map(b => ({ ...b, sprukket: sprukket.includes(b.nokkel) })), [alle, sprukket]);
+  const bursdager = useMemo(() => ballonger.filter(b => !b.sprukket), [ballonger]);
+  return { bursdager, ballonger, sprekk, blaasOpp };
 }

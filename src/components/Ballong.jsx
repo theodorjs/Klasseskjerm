@@ -35,11 +35,12 @@ const BITER = [
 ];
 const RAD = Math.PI / 180;
 
-export default function Ballong({ navn, className = '', sprekker = false }) {
+export default function Ballong({ navn, className = '', sprekker = false, slapp = false, blaases = false }) {
   const { kropp, skygge } = ballongFarge(navn);
+  const tilstand = `${sprekker ? 'ballong--sprekker ' : ''}${slapp ? 'ballong--slapp ' : ''}${blaases ? 'ballong--blaases ' : ''}`;
   return (
     <svg
-      className={`ballong ${sprekker ? 'ballong--sprekker ' : ''}${className}`.trim()}
+      className={`ballong ${tilstand}${className}`.trim()}
       viewBox="0 0 40 64"
       aria-hidden="true"
       focusable="false"

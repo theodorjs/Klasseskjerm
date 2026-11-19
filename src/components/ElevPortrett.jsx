@@ -210,12 +210,13 @@ export default function ElevPortrett({
   onOpenTimer,
   bursdager = [],
   onSprekk,
+  onBlaasOpp,
 }) {
   // Valgt fane gjelder bare den dagen den ble valgt
   const [valg, setValg] = useState({ dag: null, fane: null });
   // Samme valg som på hovedtavla: skiva i «Akkurat nå» kan skjules
   const [visSkive, vekslSkive] = useVisSkive();
-  const { sprekker, sprekk } = useSprekkBallong(onSprekk);
+  const { sprekker, sprekk, blaases, blaas } = useSprekkBallong(onSprekk, onBlaasOpp);
 
   if (!primaryState) return null;
 
@@ -389,7 +390,18 @@ export default function ElevPortrett({
 
       {(visNedtellinger || bursdager.length > 0) && (
         <div className="ep-nedtellinger" aria-label="Dager til">
-          {bursdager.map(b => (
+          {bursdager.map(b => (b.sprukket ? (
+            <button
+              key={`${b.nokkel}-slapp`}
+              type="button"
+              className="ep-nedtelling ep-bursdag ep-bursdag-slapp"
+              onClick={() => blaas(b.nokkel)}
+              title={`Blås opp ballongen til ${b.fornavn} igjen`}
+              aria-label={`Blås opp ballongen til ${b.fornavn} igjen`}
+            >
+              <Ballong navn={b.fornavn} slapp />
+            </button>
+          ) : (
             <button
               key={b.nokkel}
               type="button"
@@ -397,10 +409,10 @@ export default function ElevPortrett({
               onClick={() => sprekk(b.nokkel)}
               title="Trykk for å sprekke ballongen"
             >
-              <Ballong navn={b.fornavn} sprekker={sprekker.includes(b.nokkel)} />
+              <Ballong navn={b.fornavn} sprekker={sprekker.includes(b.nokkel)} blaases={blaases.includes(b.nokkel)} />
               <span>{b.setning[0]}<b>{b.fornavn}</b>{b.setning[1]}</span>
             </button>
-          ))}
+          )))}
           {visNedtellinger && countdowns.map((item, i) => {
             const d = getCountdownRemainingDisplay(item.targetDate, item.targetTime);
             return (
