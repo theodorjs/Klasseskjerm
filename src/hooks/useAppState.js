@@ -524,16 +524,16 @@ export function useAppState() {
   }, [currentClassName]);
 
   // «Agenda for timen»: lagre (eller fjerne, med null) malen for et fag i klassen
-  const lagreTimeMal = useCallback((fagNokkel, mal) => {
+  const lagreTimeMal = useCallback((fagNokkel, mal, klasse = currentClassName) => {
     if (!fagNokkel) return;
     setClassesState(prev => {
-      if (!prev[currentClassName]) return prev;
-      const cd = { ...prev[currentClassName] };
+      if (!prev[klasse]) return prev;
+      const cd = { ...prev[klasse] };
       const maler = { ...(cd.timeMaler || {}) };
       if (mal) maler[fagNokkel] = { maal: mal.maal || '', punkter: [...(mal.punkter || [])] };
       else delete maler[fagNokkel];
       cd.timeMaler = maler;
-      const newClasses = { ...prev, [currentClassName]: cd };
+      const newClasses = { ...prev, [klasse]: cd };
       safeSetItem('klasseromData', JSON.stringify(newClasses));
       return newClasses;
     });

@@ -22,12 +22,18 @@ import { getCurrentSubjectColor } from '../utils/color.js';
 import WallScreen from './WallScreen.jsx';
 import ForsteMote from './ForsteMote.jsx';
 import { DagensTimeKort, PlanleggTimeDialog } from './DagensTime.jsx';
-import { useDagensTime, finnSynligTime, dagensDato, timeTittel, gjeldendeAgenda } from '../hooks/useDagensTime.js';
+import { useDagensTime, finnSynligTime, dagensDato, timeTittel, agendaFor } from '../hooks/useDagensTime.js';
 import { formatMinutesAsTime } from '../utils/time.js';
-import { formatExpandedActivityDisplay, normalizeSubjectLabel, getStoredSubjectEmoji } from '../utils/schedule.js';
+import { normalizeSubjectLabel, getStoredSubjectEmoji, formatExpandedActivityLabel } from '../utils/schedule.js';
+
+/** Klassen (og faget per klasse) som sist ble valgt i agendavinduet */
+const AGENDA_KLASSE_KEY = 'klasseskjerm.agendaKlasse';
+const AGENDA_FAG_KEY = 'klasseskjerm.agendaFag';
+/** Ikke fag: kommer ikke med i fagmenyen */
+const IKKE_FAG = new Set(['Pause', 'Mat', 'Storefri', 'FRI', 'Fri']);
 import useBursdager from '../hooks/useBursdager.js';
 import { readWallModePreference, WALL_MODE_KEY } from '../utils/wallMode.js';
-import { safeSetItem, safeRemoveItem } from '../utils/storage.js';
+import { safeGetItem, safeSetItem, safeRemoveItem } from '../utils/storage.js';
 import {
   EditModal,
   CountdownModal,
@@ -87,6 +93,9 @@ export default function App() {
   const [planleggId, setPlanleggId] = useState(null);
   // Forslaget fryses når dialogen åpnes, så faget ikke bytter ved et timeskifte
   const [planleggForslag, setPlanleggForslag] = useState(null);
+  const [planleggValg, setPlanleggValg] = useState({ klasse: '', fagNokkel: '' });
+  // Åpnet fra blyanten på tavla: fagmenyen endrer ikke klassevalget læreren har
+  const [planleggHusk, setPlanleggHusk] = useState(true);
   // Ny runde = vinduet bygges på nytt (ny agenda åpnet, eller «Start på nytt»)
   const [planleggRunde, setPlanleggRunde] = useState(0);
 
@@ -204,51 +213,101 @@ export default function App() {
   // Timen som står på tavla nå, og forslag til tid når en ny time settes opp
   const synligTime = finnSynligTime(dagensTime.timer, dagensDato(), currentDay, currentMinutes);
   const planleggEksisterende = planleggId ? (dagensTime.timer.find(t => t.id === planleggId) || null) : null;
-  function dagensOkter() {
-    return (primaryState?.normalizedDayEvents || []).filter(e => e.type === 'class');
+  // Agendaer fra før de fikk klasse: knyttes til klassen som vises
+  const giAgendaKlasse = dagensTime.giKlasse;
+  useEffect(() => { if (currentClassName) giAgendaKlasse(currentClassName); }, [currentClassName, giAgendaKlasse]);
+
+  // ── «Agenda for timen»: én agenda per klasse og fag ──
+  // Klassene læreren har aktive i tidslinja; valget i agendavinduet huskes
+  const agendaKlasser = timelineClassNames.filter(n => classes[n]);
+  function huskAgendaKlasse() {
+    const lagret = safeGetItem(AGENDA_KLASSE_KEY);
+    return lagret && agendaKlasser.includes(lagret) ? lagret : currentClassName;
   }
-  function fagForOkt(okt) {
-    if (!okt) return { fag: '', fagNokkel: '' };
+  function okterFor(klasse) {
+    const state = klasse === currentClassName
+      ? primaryState
+      : getClassScheduleState(klasse, currentDay, currentMinutes, classes, tempScheduleChanges);
+    return (state?.normalizedDayEvents || []).filter(e => e.type === 'class');
+  }
+  // Alle fagene i en time («Kroppsøving 8. / Matematikk 9.» har to)
+  function fagIOkt(okt) {
     const aktivitet = okt.displayActivity || okt.activity;
-    return {
-      fag: formatExpandedActivityDisplay(aktivitet).split(' / ')[0],
-      // Nøkkelen malen lagres under (samme form som fagfargene)
-      fagNokkel: normalizeSubjectLabel(String(aktivitet || '').split('/')[0]),
-    };
+    return String(aktivitet || '').split('/').map(a => normalizeSubjectLabel(a.trim())).filter(Boolean);
   }
-  // Faget i timeplanen på et klokkeslett: følger med når læreren endrer starttiden
-  function fagVed(minutter) {
-    return fagForOkt(dagensOkter().find(e => minutter >= e.start && minutter < e.end));
+  // Fagene i klassens timeplan, til nedtrekksmenyen
+  function fagValg(klasse) {
+    const fag = new Set();
+    Object.values(classes[klasse]?.schedule || {}).forEach(dag => (dag || []).forEach(e => {
+      String(e?.activity || '').split('/').forEach(a => {
+        const n = normalizeSubjectLabel(a.trim());
+        if (n && !IKKE_FAG.has(n)) fag.add(n);
+      });
+    }));
+    return [...fag]
+      .map(nokkel => ({ nokkel, navn: formatExpandedActivityLabel(nokkel) }))
+      .sort((a, b) => a.navn.localeCompare(b.navn, 'nb'));
   }
-  function lagForslag() {
-    const okter = dagensOkter();
+  // Faget som er nå (eller neste time) i klassen. Har timen flere fag, velges
+  // det læreren sist valgte for klassen, hvis det er ett av dem.
+  function naavaerendeFag(klasse) {
+    const okter = okterFor(klasse);
     const okt = okter.find(e => currentMinutes >= e.start && currentMinutes < e.end)
       || okter.find(e => e.start > currentMinutes);
-    if (okt) {
-      return {
-        fra: formatMinutesAsTime(okt.start),
-        til: formatMinutesAsTime(okt.end),
-        ...fagForOkt(okt),
-      };
-    }
-    const start = Math.min(23 * 60, Math.ceil((currentMinutes + 1) / 5) * 5);
-    return { fra: formatMinutesAsTime(start), til: formatMinutesAsTime(Math.min(start + 45, 23 * 60 + 59)), fag: '', fagNokkel: '' };
+    if (!okt) return '';
+    const deler = fagIOkt(okt);
+    const sist = safeGetItem(`${AGENDA_FAG_KEY}.${klasse}`);
+    return sist && deler.includes(sist) ? sist : (deler[0] || '');
   }
-  // Fagets symbol og farge, som på «Akkurat nå»: øverst på kortet og i dialogen
-  function fagMerke(fagNokkel) {
-    if (!fagNokkel || !currentClass) return null;
-    const symbol = getStoredSubjectEmoji(currentClassName, fagNokkel, { [currentClassName]: currentClass });
-    const farge = getCurrentSubjectColor({ currentActivity: fagNokkel, classData: currentClass })?.color || null;
+  // Tid for agendaen: fagets time i dag (pågår, ellers neste, ellers siste).
+  // Har faget ingen time i dag (eller agendaen er uten fag), lånes ikke tiden
+  // til et annet fag: da foreslås de neste 45 minuttene, og tiden vises.
+  function lagForslag(klasse, fagNokkel) {
+    const fag = fagNokkel ? formatExpandedActivityLabel(fagNokkel) : '';
+    const avFaget = fagNokkel ? okterFor(klasse).filter(e => fagIOkt(e).includes(fagNokkel)) : [];
+    const okt = avFaget.find(e => currentMinutes >= e.start && currentMinutes < e.end)
+      || avFaget.find(e => e.start > currentMinutes)
+      || avFaget[avFaget.length - 1];
+    if (okt) return { fra: formatMinutesAsTime(okt.start), til: formatMinutesAsTime(okt.end), fag, fagNokkel, fraTimeplan: true };
+    const start = Math.min(23 * 60, Math.ceil((currentMinutes + 1) / 5) * 5);
+    return { fra: formatMinutesAsTime(start), til: formatMinutesAsTime(Math.min(start + 45, 23 * 60 + 59)), fag, fagNokkel, fraTimeplan: false };
+  }
+  // Fagets symbol og farge, som på «Akkurat nå»: øverst på kortet og i vinduet
+  function fagMerke(fagNokkel, klasse = currentClassName) {
+    const data = classes[klasse || currentClassName];
+    if (!fagNokkel || !data) return null;
+    const navn = klasse || currentClassName;
+    const symbol = getStoredSubjectEmoji(navn, fagNokkel, { [navn]: data });
+    const farge = getCurrentSubjectColor({ currentActivity: fagNokkel, classData: data })?.color || null;
     return { symbol: symbol && symbol !== 'circle-help' ? symbol : null, farge };
   }
-  function openPlanlegg(id) {
-    const forslag = lagForslag();
-    setPlanleggForslag(forslag);
-    // Agendaen som står på tavla, ellers den læreren sist lagret (også en
-    // som er skjult eller tatt med fra i går), ellers en ny
-    setPlanleggId(id ?? synligTime?.id ?? gjeldendeAgenda(dagensTime.timer)?.id ?? null);
+  /**
+   * Åpner (eller bytter til) agendaen for en klasse og et fag. Uten fag:
+   * faget som er nå i klassen, ellers det som sist ble valgt for klassen.
+   * `husk`: valget i menyene blir stående til læreren endrer det.
+   */
+  function velgAgenda(klasse, fagNokkel, husk = true, id = null) {
+    const fag = fagNokkel ?? (naavaerendeFag(klasse) || safeGetItem(`${AGENDA_FAG_KEY}.${klasse}`) || '');
+    if (husk) {
+      safeSetItem(AGENDA_KLASSE_KEY, klasse);
+      safeSetItem(`${AGENDA_FAG_KEY}.${klasse}`, fag);
+    }
+    setPlanleggHusk(husk);
+    setPlanleggValg({ klasse, fagNokkel: fag });
+    setPlanleggForslag(lagForslag(klasse, fag));
+    setPlanleggId(id ?? agendaFor(dagensTime.timer, klasse, fag, currentClassName)?.id ?? null);
     setPlanleggRunde(n => n + 1);
     setPlanleggOpen(true);
+  }
+  function openPlanlegg(id) {
+    // Blyanten på tavla: akkurat den agendaen (klassevalget i menyen står)
+    const valgt = id && dagensTime.timer.find(t => t.id === id);
+    if (valgt) {
+      velgAgenda(valgt.klasse || currentClassName, valgt.fagNokkel || '', false, valgt.id);
+      return;
+    }
+    // Ellers: klassen læreren sist valgte, med faget som er nå
+    velgAgenda(huskAgendaKlasse(), null);
   }
 
   // Handler: open edit modal from timeline
@@ -344,7 +403,7 @@ export default function App() {
           {synligTime ? (
             <DagensTimeKort
               time={synligTime}
-              merke={fagMerke(synligTime.fagNokkel)}
+              merke={fagMerke(synligTime.fagNokkel, synligTime.klasse)}
               minutter={currentMinutes}
               onEndre={() => openPlanlegg(synligTime.id)}
               onSkjul={() => dagensTime.skjulTime(synligTime.id)}
@@ -463,7 +522,14 @@ export default function App() {
         onSelectClass={selectClass}
         onToggleTimelineClass={toggleTimelineClass}
         onAddNewClass={addNewClass}
-        onRenameClass={renameCurrentClass}
+        onRenameClass={(gammelt, nytt) => {
+          renameCurrentClass(gammelt, nytt);
+          // Agendaene, menyvalget og utkastene følger klassen
+          dagensTime.byttKlasseNavn(gammelt, nytt);
+          if (safeGetItem(AGENDA_KLASSE_KEY) === gammelt) safeSetItem(AGENDA_KLASSE_KEY, nytt);
+          const sistFag = safeGetItem(`${AGENDA_FAG_KEY}.${gammelt}`);
+          if (sistFag !== null) safeSetItem(`${AGENDA_FAG_KEY}.${nytt}`, sistFag);
+        }}
         onDeleteClass={deleteCurrentClass}
         onSaveScheduleV2={saveScheduleV2}
         onPickColor={(subject) => setColorDetailModal({ subject })}
@@ -510,11 +576,15 @@ export default function App() {
         open={planleggOpen}
         eksisterende={planleggEksisterende}
         forslag={planleggForslag}
-        fagVed={fagVed}
-        maler={currentClass?.timeMaler || {}}
-        merkeFor={fagMerke}
+        klasse={planleggValg.klasse}
+        fagNokkel={planleggValg.fagNokkel}
+        klasser={agendaKlasser}
+        fagValg={fagValg}
+        onVelg={(klasse, fag, fraKlassemenyen) => velgAgenda(klasse, fag, fraKlassemenyen || planleggHusk)}
+        maler={classes[planleggValg.klasse]?.timeMaler || {}}
+        merkeFor={(nokkel) => fagMerke(nokkel, planleggValg.klasse)}
         editPermission={editPermission}
-        onLagreMal={lagreTimeMal}
+        onLagreMal={(nokkel, mal) => lagreTimeMal(nokkel, mal, planleggValg.klasse)}
         minutter={currentMinutes}
         dag={currentDay}
         onLagre={(time) => { dagensTime.lagreTime(time); setPlanleggOpen(false); }}
@@ -523,7 +593,7 @@ export default function App() {
           // «Tøm»: agendaen fjernes, og vinduet står klart for en ny
           if (id) dagensTime.slettTime(id);
           setPlanleggId(null);
-          setPlanleggForslag(lagForslag());
+          setPlanleggForslag(lagForslag(planleggValg.klasse, planleggValg.fagNokkel));
           setPlanleggRunde(n => n + 1);
         }}
       />

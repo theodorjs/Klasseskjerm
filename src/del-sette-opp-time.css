@@ -313,6 +313,12 @@ body.agenda-vindu-apen:not(.agenda-til-venstre) .timer-mini {
     left: 35px;
 }
 
+/* Klasse og fag øverst i vinduet: to menyer side om side */
+.dt-velg { display: flex; flex-wrap: wrap; gap: 10px; }
+.dt-velg-felt { flex: 1 1 140px; min-width: 0; }
+.dt-velg-fag { flex: 2 1 180px; }
+.dt-velg .k-select { width: 100%; min-height: 44px; font-size: 1.05rem; font-weight: 700; }
+
 /* Fortsetter et utkast: kort melding øverst */
 .dt-utkast {
     display: flex;

@@ -190,32 +190,43 @@ export function DagensTimeKort({ time, minutter, merke, onEndre, onSkjul, onVeks
 // ─── Dialogen læreren fyller ut ─────────────────────────────────────────────
 
 function PlanleggTimeInner({
-  eksisterende, forslag, fagVed, minutter, dag, maler, merkeFor, editPermission,
+  eksisterende, forslag, klasse = '', fagNokkel = '', klasser = [], fagValg, onVelg,
+  minutter, dag, maler, merkeFor, editPermission,
   onLagre, onLagreMal, onAvbryt, onTom,
 }) {
+  // Faget (og klassen) velges i menyene øverst; hvert fag har sin egen agenda
+  const fag = fagNokkel ? (forslag.fag || fagNokkel) : '';
   // Utkastet: det læreren skrev sist, men ikke viste på tavla. Vinduet åpner der.
-  const gjelder = eksisterende?.id || 'ny';
+  // Hver agenda (og hver ny agenda for en klasse og et fag) har sitt eget.
+  const gjelder = eksisterende?.id || `ny:${klasse}:${fagNokkel}`;
   const [utkast] = useState(() => lesUtkast(gjelder));
   const u = utkast?.data || null;
-  // En ny agenda, eller en som er tatt med fra en tidligere dag, får tid og fag
-  // fra timen som er nå. Et utkast for en ny agenda beholder sin tid bare når
-  // det ble skrevet for den samme timen.
-  const nyTime = !eksisterende || !!eksisterende.overfort;
+  // En ny agenda, eller en fra en tidligere dag, får tiden til fagets time i
+  // dag. Et utkast for en ny agenda beholder sin tid bare når det ble skrevet
+  // for den samme timen.
+  const fraFoer = !!eksisterende && eksisterende.dato !== dagensDato();
+  const nyTime = !eksisterende || fraFoer;
   const tidFraUtkast = !!u && (!nyTime || u.forslagFra === forslag.fra);
   const [forst] = useState(() => (tidFraUtkast
-    ? { fra: u.fra, til: u.til, fag: u.fag || '', fagNokkel: u.fagNokkel || '', tilRort: !!u.tilRort }
+    ? { fra: u.fra, til: u.til, tilRort: !!u.tilRort }
     : nyTime
-      ? { fra: forslag.fra, til: forslag.til, fag: forslag.fag || '', fagNokkel: forslag.fagNokkel || '', tilRort: false }
-      : { fra: eksisterende.fra, til: eksisterende.til, fag: eksisterende.fag || '', fagNokkel: eksisterende.fagNokkel || '', tilRort: true }));
+      ? { fra: forslag.fra, til: forslag.til, tilRort: false }
+      : { fra: eksisterende.fra, til: eksisterende.til, tilRort: true }));
 
-  // Faget følger starttiden: endrer læreren tiden til en annen time, byttes
-  // faget (og malen) til den timen
-  const [{ fag, fagNokkel }, setFagInfo] = useState({ fag: forst.fag, fagNokkel: forst.fagNokkel });
   const merke = merkeFor?.(fagNokkel) || null;
   const mal = fagNokkel ? maler?.[fagNokkel] : null;
-  // Rask vei: en time fra timeplanen. Da står faget og tiden på én linje, og
-  // markøren står i første punkt. Bestemmes én gang, når vinduet åpnes.
-  const [rask] = useState(() => nyTime && !!forst.fag);
+  // Klassene i tidslinja; klassen agendaen hører til, er alltid med (også når
+  // den ikke lenger er aktiv), så menyen viser riktig klasse
+  const klasseListe = !klasse || klasser.includes(klasse) ? klasser : [klasse, ...klasser];
+  // Fagene i klassens timeplan; faget agendaen har, er alltid med
+  const fagListe = (() => {
+    const liste = fagValg?.(klasse) || [];
+    return !fagNokkel || liste.some(f => f.nokkel === fagNokkel) ? liste : [{ nokkel: fagNokkel, navn: fag }, ...liste];
+  })();
+  // Rask vei: tiden (fagets time i dag) står på én linje under menyene, og
+  // markøren står i første punkt. Har faget ingen time i dag, vises tidsfeltene,
+  // så læreren ser hvilken tid agendaen får. Bestemmes én gang, når vinduet åpnes.
+  const [rask] = useState(() => nyTime && forslag.fraTimeplan !== false);
 
   const [utvidet, setUtvidet] = useState(tidFraUtkast ? !!u.utvidet : !rask);
   const [visMaal, setVisMaal] = useState(u ? !!u.visMaal : (!rask || !!eksisterende?.maal));
@@ -303,7 +314,6 @@ function PlanleggTimeInner({
   function endreFra(v) {
     setFra(v);
     const ny = tolkKlokkeslett(v);
-    if (ny && fagVed) setFagInfo(fagVed(getMinutesFromTime(ny)));
     if (tilRort) return;
     const gammelStart = tolkKlokkeslett(fra);
     const gammelSlutt = tolkKlokkeslett(til);
@@ -336,6 +346,7 @@ function PlanleggTimeInner({
       tittel: tittel.trim(),
       fag,
       fagNokkel,
+      klasse,
       fra: fraOk,
       til: tilOk,
       maal: maal.trim(),
@@ -490,8 +501,27 @@ function PlanleggTimeInner({
 
   return (
     <AgendaVindu tittel={eksisterende ? 'Endre agendaen' : 'Agenda for timen'} onLukk={onAvbryt}>
-      {eksisterende?.overfort && !utkast && (
-        <div className="dt-utkast" role="status">Det som ikke ble krysset av sist, står her fortsatt. Trykk «Tøm» for å begynne på nytt.</div>
+      {/* Hvilken klasse og hvilket fag agendaen gjelder. Bytter man, lagres
+          det man har skrevet som utkast, og agendaen for det andre faget åpnes. */}
+      <div className="dt-velg">
+        {klasseListe.length > 1 && (
+          <label className="k-field dt-velg-felt">
+            <span>Klasse</span>
+            <select className="k-select" id="time-klasse" value={klasse} onChange={e => onVelg?.(e.target.value, null, true)}>
+              {klasseListe.map(k => <option key={k} value={k}>{k}</option>)}
+            </select>
+          </label>
+        )}
+        <label className="k-field dt-velg-felt dt-velg-fag">
+          <span>Fag</span>
+          <select className="k-select" id="time-fag" value={fagNokkel} onChange={e => onVelg?.(klasse, e.target.value, false)}>
+            {fagListe.map(f => <option key={f.nokkel} value={f.nokkel}>{f.navn}</option>)}
+            <option value="">Uten fag</option>
+          </select>
+        </label>
+      </div>
+      {fraFoer && !utkast && (
+        <div className="dt-utkast" role="status">Agendaen for {fag || 'timen'} fra sist. Det som ble krysset av, er fjernet. Trykk «Tøm» for å begynne på nytt.</div>
       )}
       {utkast && (
         <div className="dt-utkast" role="status">
@@ -501,7 +531,7 @@ function PlanleggTimeInner({
       {!utvidet ? (
         <div className="dt-sammendrag">
           <FagMerke merke={merke || { symbol: null, farge: null }} />
-          <span className="dt-sammendrag-fag">{fag}</span>
+          <span className="dt-sammendrag-fag">Timen</span>
           <span className="dt-sammendrag-tid">{fraOk || fra}–{tilOk || til}</span>
           <button
             type="button"
